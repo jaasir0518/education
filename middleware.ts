@@ -23,6 +23,13 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = authRoutes.some(route => 
     url.pathname.startsWith(route)
   )
+  const isRootRoute = url.pathname === '/'
+
+  // If user is authenticated and on root route, redirect to home
+  if (session && isRootRoute) {
+    url.pathname = '/home'
+    return NextResponse.redirect(url)
+  }
 
   // If user is not authenticated and trying to access protected route
   if (!session && isProtectedRoute) {

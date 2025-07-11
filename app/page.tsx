@@ -1,22 +1,8 @@
 // app/page.tsx
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
-export default async function RootPage() {
-  const supabase = createServerComponentClient({ cookies })
-  
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    // If user is authenticated, redirect to home
-    if (session) {
-      redirect('/home')
-    }
-  } catch (error) {
-    console.error('Error checking authentication:', error)
-  }
+export default function RootPage() {
+  // Note: Middleware handles authentication redirects, so this page only shows for unauthenticated users
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
