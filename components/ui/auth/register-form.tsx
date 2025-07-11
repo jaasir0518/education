@@ -1,47 +1,125 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card } from '@/components/ui/card'
+import { supabase } from '@/lib/supabase/client'
+
 export default function RegisterForm() {
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const router = useRouter()
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setLoading(true)
+        setError('')
+
+        if (password !== confirmPassword) {
+            setError('Passwords do not match')
+            setLoading(false)
+            return
+        }
+
+        try {
+            const { error } = await supabase.auth.signUp({
+                email,
+                password,
+            })
+
+            if (error) {
+                setError(error.message)
+            } else {
+                router.push('/auth/login')
+            }
+        } catch (error) {
+            setError('An unexpected error occurred')
+        } finally {
+            setLoading(false)
+        }
+    }
+
     return (
-        <div className="w-full max-w-md space-y-6">
-            <div>
-                <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900">
-                    Create your account
-                </h2>
-            </div>
-            <form className="mt-8 space-y-6">
-                <div className="space-y-4">
+        <Card className="w-full max-w-md p-6">
+            <div className="space-y-6">
+                <div className="text-center">
+                    <h1 className="text-2xl font-bold">Create Account</h1>
+                    <p className="text-gray-600">Sign up for a new account</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                            Email address
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                            Email
                         </label>
-                        <input
+                        <Input
                             id="email"
-                            name="email"
                             type="email"
+                            value={email}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                             required
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            className="w-full"
+                            placeholder="Enter your email"
                         />
                     </div>
+
                     <div>
-                        <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                        <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                             Password
                         </label>
-                        <input
+                        <Input
                             id="password"
-                            name="password"
                             type="password"
+                            value={password}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                             required
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            className="w-full"
+                            placeholder="Enter your password"
                         />
                     </div>
-                </div>
-                <div>
-                    <button
+
+                    <div>
+                        <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+                            Confirm Password
+                        </label>
+                        <Input
+                            id="confirmPassword"
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
+                            required
+                            className="w-full"
+                            placeholder="Confirm your password"
+                        />
+                    </div>
+
+                    {error && (
+                        <div className="text-red-600 text-sm">{error}</div>
+                    )}
+
+                    <Button
                         type="submit"
-                        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        disabled={loading}
+                        className="w-full"
                     >
-                        Register
-                    </button>
+                        {loading ? 'Creating account...' : 'Create Account'}
+                    </Button>
+                </form>
+
+                <div className="text-center">
+                    <p className="text-sm text-gray-600">
+                        Already have an account?{' '}
+                        <a href="/auth/login" className="text-blue-600 hover:underline">
+                            Sign in
+                        </a>
+                    </p>
                 </div>
-            </form>
-        </div>
+            </div>
+        </Card>
     )
 }
