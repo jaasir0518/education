@@ -20,18 +20,26 @@ export default function LoginForm() {
         setError('')
 
         try {
-            const { error } = await supabase.auth.signInWithPassword({
+            const { data, error } = await supabase.auth.signInWithPassword({
                 email,
                 password,
             })
 
             if (error) {
-                setError(error.message)
-            } else {
+                // Handle specific error types
+                if (error.message.includes('500')) {
+                    setError('Server error: Please check your Supabase configuration.')
+                } else if (error.message.includes('Invalid login credentials')) {
+                    setError('Invalid email or password. Please check your credentials.')
+                } else {
+                    setError(error.message)
+                }
+            } else if (data.user) {
                 router.push('/dashboard')
             }
         } catch (error) {
-            setError('An unexpected error occurred')
+            console.error('Login error:', error)
+            setError('An unexpected error occurred. Please try again.')
         } finally {
             setLoading(false)
         }

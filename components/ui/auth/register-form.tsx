@@ -27,18 +27,31 @@ export default function RegisterForm() {
         }
 
         try {
-            const { error } = await supabase.auth.signUp({
+            const { data, error } = await supabase.auth.signUp({
                 email,
                 password,
             })
 
             if (error) {
-                setError(error.message)
+                // Handle specific error types
+                if (error.message.includes('500')) {
+                    setError('Server error: Please check your Supabase configuration. Make sure your database is set up correctly.')
+                } else if (error.message.includes('User already registered')) {
+                    setError('An account with this email already exists. Please try signing in instead.')
+                } else {
+                    setError(error.message)
+                }
             } else {
-                router.push('/auth/login')
+                // Check if email confirmation is required
+                if (data.user && !data.session) {
+                    setError('Please check your email and click the confirmation link before signing in.')
+                } else {
+                    router.push('/auth/login')
+                }
             }
         } catch (error) {
-            setError('An unexpected error occurred')
+            console.error('Registration error:', error)
+            setError('An unexpected error occurred. Please try again.')
         } finally {
             setLoading(false)
         }
