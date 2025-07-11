@@ -35,7 +35,7 @@ export default function LoginForm() {
                     setError(error.message)
                 }
             } else if (data.user) {
-                router.push('/dashboard')
+                router.push('/home')
             }
         } catch (error) {
             console.error('Login error:', error)

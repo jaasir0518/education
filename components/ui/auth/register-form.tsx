@@ -46,7 +46,7 @@ export default function RegisterForm() {
                 if (data.user && !data.session) {
                     setError('Please check your email and click the confirmation link before signing in.')
                 } else {
-                    router.push('/auth/login')
+                    router.push('/home')
                 }
             }
         } catch (error) {
