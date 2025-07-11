@@ -1,11 +1,14 @@
+// app/layout.tsx
+import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import Navigation from '@/components/navigation'
 
-const inter = Inter ({ subsets: ['latin']})
+const inter = Inter({ subsets: ['latin'] })
 
-export const metadata = {
-  title: 'Auth App',
-  description: 'A simple authentication app using Next.js and Supabase',
+export const metadata: Metadata = {
+  title: 'My Auth App',
+  description: 'A Next.js app with Supabase authentication',
 }
 
 export default function RootLayout({
@@ -15,7 +18,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <Navigation />
+        <main>{children}</main>
+      </body>
     </html>
   )
 }
