@@ -5,95 +5,148 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
+import { EnrollButton } from '@/components/ui/enroll-button'
 
-// Mock data - replace with actual data fetching
-const getCourseById = (id: string) => {
-  const courses = {
-    "1": {
-      id: 1,
-      title: "JavaScript Fundamentals",
-      description: "Master the fundamentals of JavaScript programming language from scratch. This comprehensive course covers everything you need to know to start your web development journey.",
-      longDescription: "This course is designed for complete beginners who want to learn JavaScript from the ground up. We'll start with the basics like variables, data types, and functions, then move on to more advanced topics like objects, arrays, and DOM manipulation. By the end of this course, you'll have a solid foundation in JavaScript and be ready to tackle more advanced topics.",
-      duration: "8 hours",
-      lessons: 24,
-      level: "Beginner",
-      progress: 75,
-      thumbnail: "🟨",
-      enrolled: true,
-      instructor: "John Smith",
-      rating: 4.8,
-      students: 1234,
-      lastUpdated: "2024-01-15",
-      chapters: [
-        {
-          id: 1,
-          title: "Introduction to JavaScript",
-          lessons: [
-            { id: 2, title: "Setting up Development Environment", duration: "15 min", completed: true },
-            { id: 3, title: "Your First JavaScript Program", duration: "12 min", completed: true },
-          ]
-        },
-        {
-          id: 2,
-          title: "Variables and Data Types",
-          lessons: [
-            { id: 4, title: "Understanding Variables", duration: "20 min", completed: true },
-            { id: 5, title: "Numbers and Strings", duration: "18 min", completed: true },
-            { id: 6, title: "Booleans and Arrays", duration: "22 min", completed: false },
-            { id: 7, title: "Objects Introduction", duration: "25 min", completed: false },
-          ]
-        },
-        {
-          id: 3,
-          title: "Functions and Control Flow",
-          lessons: [
-            { id: 8, title: "Function Basics", duration: "20 min", completed: false },
-            { id: 9, title: "If Statements", duration: "15 min", completed: false },
-            { id: 10, title: "Loops", duration: "30 min", completed: false },
-          ]
-        },
-        {
-          id: 4,
-          title: "DOM Manipulation",
-          lessons: [
-            { id: 11, title: "What is the DOM?", duration: "18 min", completed: false },
-            { id: 12, title: "Selecting Elements", duration: "22 min", completed: false },
-            { id: 13, title: "Modifying Elements", duration: "25 min", completed: false },
-            { id: 14, title: "Event Handling", duration: "30 min", completed: false },
-          ]
-        }
-      ]
-    },
-    "2": {
-      id: 2,
-      title: "React Advanced Patterns",
-      description: "Master advanced React patterns and best practices for building scalable applications.",
-      longDescription: "Take your React skills to the next level with this advanced course covering compound components, render props, higher-order components, and modern hooks patterns.",
-      duration: "12 hours",
-      lessons: 36,
-      level: "Advanced",
-      progress: 45,
-      thumbnail: "⚛️",
-      enrolled: true,
-      instructor: "Jane Doe",
-      rating: 4.9,
-      students: 892,
-      lastUpdated: "2024-01-20",
-      chapters: [
-        {
-          id: 1,
-          title: "Advanced Component Patterns",
-          lessons: [
-            { id: 1, title: "Compound Components", duration: "25 min", completed: true },
-            { id: 2, title: "Render Props Pattern", duration: "30 min", completed: true },
-            { id: 3, title: "Higher-Order Components", duration: "35 min", completed: false },
-          ]
-        }
-      ]
+// Types
+interface Lesson {
+  id: string
+  title: string
+  duration: string
+  order_index: number
+  completed: boolean
+}
+
+interface Chapter {
+  id: string
+  title: string
+  order_index: number
+  lessons: Lesson[]
+}
+
+interface CourseDetail {
+  id: string
+  title: string
+  description: string
+  long_description: string
+  duration: string
+  level: string
+  thumbnail: string
+  instructor: string
+  rating: number
+  students: number
+  created_at: string
+  chapters: Chapter[]
+  enrolled: boolean
+}
+
+// Database functions
+async function getCourseById(courseId: string, userId: string): Promise<CourseDetail | null> {
+  const supabase = createServerComponentClient({ cookies })
+  
+  // Get course with chapters and lessons
+  const { data: courseData, error: courseError } = await supabase
+    .from('courses')
+    .select(`
+      id,
+      title,
+      description,
+      long_description,
+      duration,
+      level,
+      thumbnail,
+      instructor,
+      rating,
+      students,
+      created_at,
+      chapters (
+        id,
+        title,
+        order_index,
+        lessons (
+          id,
+          title,
+          duration,
+          order_index
+        )
+      )
+    `)
+    .eq('id', courseId)
+    .single()
+
+  if (courseError || !courseData) {
+    console.error('Error fetching course:', courseError)
+    return null
+  }
+
+  // Check if user is enrolled
+  const { data: enrollmentData, error: enrollmentError } = await supabase
+    .from('enrollments')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .single()
+
+  const enrolled = !enrollmentError && enrollmentData
+
+  // Get lesson progress if enrolled
+  let lessonProgress: Record<string, boolean> = {}
+  if (enrolled) {
+    const { data: progressData, error: progressError } = await supabase
+      .from('lesson_progress')
+      .select(`
+        lesson_id,
+        completed,
+        lessons!inner (
+          id,
+          chapters!inner (
+            course_id
+          )
+        )
+      `)
+      .eq('user_id', userId)
+      .eq('lessons.chapters.course_id', courseId)
+
+    if (!progressError && progressData) {
+      lessonProgress = progressData.reduce((acc, progress) => {
+        acc[progress.lesson_id] = progress.completed
+        return acc
+      }, {} as Record<string, boolean>)
     }
   }
-  
-  return courses[id as keyof typeof courses] || null
+
+  // Transform data
+  const transformedCourse: CourseDetail = {
+    id: courseData.id,
+    title: courseData.title,
+    description: courseData.description,
+    long_description: courseData.long_description || courseData.description,
+    duration: courseData.duration,
+    level: courseData.level,
+    thumbnail: courseData.thumbnail,
+    instructor: courseData.instructor,
+    rating: courseData.rating,
+    students: courseData.students,
+    created_at: courseData.created_at,
+    enrolled: !!enrolled,
+    chapters: courseData.chapters
+      .sort((a, b) => a.order_index - b.order_index)
+      .map(chapter => ({
+        id: chapter.id,
+        title: chapter.title,
+        order_index: chapter.order_index,
+        lessons: chapter.lessons
+          .sort((a, b) => a.order_index - b.order_index)
+          .map(lesson => ({
+            id: lesson.id,
+            title: lesson.title,
+            duration: lesson.duration,
+            order_index: lesson.order_index,
+            completed: lessonProgress[lesson.id] || false
+          }))
+      }))
+  }
+
+  return transformedCourse
 }
 
 interface CourseDetailPageProps {
@@ -113,7 +166,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
     redirect('/auth/login')
   }
 
-  const course = getCourseById(params.courseId)
+  const course = await getCourseById(params.courseId, user.id)
 
   if (!course) {
     return (
@@ -137,7 +190,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
     return total + chapter.lessons.length
   }, 0)
 
-  const progressPercentage = Math.round((completedLessons / totalLessons) * 100)
+  const progressPercentage = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -166,7 +219,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
 
               <div className="flex flex-wrap gap-2 mb-4">
                 <Badge variant="secondary">{course.level}</Badge>
-                <Badge variant="outline">{course.lessons} lessons</Badge>
+                <Badge variant="outline">{totalLessons} lessons</Badge>
                 <Badge variant="outline">{course.duration}</Badge>
                 <Badge variant="outline">⭐ {course.rating}</Badge>
               </div>
@@ -194,7 +247,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
               </CardHeader>
               <CardContent>
                 <p className="text-gray-700 leading-relaxed mb-4">
-                  {course.longDescription}
+                  {course.long_description}
                 </p>
                 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -208,7 +261,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                   </div>
                   <div>
                     <p className="text-gray-500">Last Updated</p>
-                    <p className="font-medium">{new Date(course.lastUpdated).toLocaleDateString()}</p>
+                    <p className="font-medium">{new Date(course.created_at).toLocaleDateString()}</p>
                   </div>
                   <div>
                     <p className="text-gray-500">Language</p>
@@ -263,8 +316,10 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
               <CardContent className="p-6">
                 {course.enrolled ? (
                   <div className="space-y-4">
-                    <Button className="w-full" size="lg">
-                      Continue Learning
+                    <Button className="w-full" size="lg" asChild>
+                      <Link href={`/courses/${course.id}/learn`}>
+                        Continue Learning
+                      </Link>
                     </Button>
                     <Button variant="outline" className="w-full">
                       Download Materials
@@ -275,9 +330,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <Button className="w-full" size="lg">
-                      Enroll Now
-                    </Button>
+                    <EnrollButton courseId={course.id} />
                     <Button variant="outline" className="w-full">
                       Preview Course
                     </Button>
@@ -293,7 +346,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                     </div>
                     <div className="flex items-center gap-2">
                       <span>📝</span>
-                      <span>{course.lessons} lessons</span>
+                      <span>{totalLessons} lessons</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span>📱</span>
@@ -311,9 +364,9 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                 </div>
               </CardContent>
             </Card>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-)
+  )
 }

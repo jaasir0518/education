@@ -70,6 +70,6 @@ export const toast = ({
   variant = 'default',
 }: Omit<Toast, 'id' | 'duration'>) => {
   console.log(`[${variant.toUpperCase()}] ${title}${description ? `: ${description}` : ''}`)
+
+
   
-  // You can replace this with your actual toast UI implementation
-  // For now, it just logs to console

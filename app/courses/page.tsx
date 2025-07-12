@@ -6,75 +6,133 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-// Mock data - replace with actual data fetching
-const courses = [
-  {
-    id: 1,
-    title: "JavaScript Fundamentals",
-    description: "Learn the basics of JavaScript programming language",
-    duration: "8 hours",
-    lessons: 24,
-    level: "Beginner",
-    progress: 75,
-    thumbnail: "🟨",
-    enrolled: true
-  },
-  {
-    id: 2,
-    title: "React Advanced Patterns",
-    description: "Master advanced React patterns and best practices",
-    duration: "12 hours",
-    lessons: 36,
-    level: "Advanced",
-    progress: 45,
-    thumbnail: "⚛️",
-    enrolled: true
-  },
-  {
-    id: 3,
-    title: "Next.js 14 Mastery",
-    description: "Build production-ready applications with Next.js 14",
-    duration: "16 hours",
-    lessons: 48,
-    level: "Intermediate",
-    progress: 0,
-    thumbnail: "🔺",
-    enrolled: false
-  },
-  {
-    id: 4,
-    title: "TypeScript Deep Dive",
-    description: "Advanced TypeScript concepts and enterprise patterns",
-    duration: "10 hours",
-    lessons: 30,
-    level: "Advanced",
-    progress: 0,
-    thumbnail: "🔷",
-    enrolled: false
-  },
-  {
-    id: 5,
-    title: "Node.js Backend Development",
-    description: "Build scalable backend applications with Node.js",
-    duration: "14 hours",
-    lessons: 42,
-    level: "Intermediate",
-    progress: 0,
-    thumbnail: "🟢",
-    enrolled: false
-  },
-  {
-    id: 6,
-    title: "Database Design & SQL",
-    description: "Master database design principles and SQL queries",
-    duration: "6 hours",
-    lessons: 18,
-    level: "Beginner",
-    progress: 0,
-    thumbnail: "🗄️",
-    enrolled: false
+// Types
+interface Course {
+  id: string
+  title: string
+  description: string
+  duration: string
+  level: string
+  thumbnail: string
+  instructor: string
+  rating: number
+  students: number
+  enrolled: boolean
+  progress: number
+  totalLessons: number
+}
+
+// Database functions
+async function getCourses(userId: string) {
+  const supabase = createServerComponentClient({ cookies })
+  
+  // Get all courses with enrollment status
+  const { data: coursesData, error: coursesError } = await supabase
+    .from('courses')
+    .select(`
+      id,
+      title,
+      description,
+      duration,
+      level,
+      thumbnail,
+      instructor,
+      rating,
+      students,
+      chapters!inner (
+        id,
+        lessons!inner (
+          id
+        )
+      )
+    `)
+    .order('created_at', { ascending: false })
+
+  if (coursesError) {
+    console.error('Error fetching courses:', coursesError)
+    return { enrolledCourses: [], availableCourses: [] }
   }
-]
+
+  // Get user enrollments
+  const { data: enrollmentsData, error: enrollmentsError } = await supabase
+    .from('enrollments')
+    .select('course_id')
+    .eq('user_id', userId)
+
+  if (enrollmentsError) {
+    console.error('Error fetching enrollments:', enrollmentsError)
+  }
+
+  const enrolledCourseIds = new Set(enrollmentsData?.map(e => e.course_id) || [])
+
+  // Get lesson progress for enrolled courses
+  const { data: progressData, error: progressError } = await supabase
+    .from('lesson_progress')
+    .select(`
+      lesson_id,
+      completed,
+      lessons!inner (
+        id,
+        chapters!inner (
+          course_id
+        )
+      )
+    `)
+    .eq('user_id', userId)
+    .eq('completed', true)
+
+  if (progressError) {
+    console.error('Error fetching progress:', progressError)
+  }
+
+  // Calculate progress for each course
+  const courseProgress = new Map<string, number>()
+  
+  if (progressData) {
+    const progressByCourse = progressData.reduce((acc, progress) => {
+      const courseId = progress.lessons[0].chapters[0].course_id
+      if (!acc[courseId]) acc[courseId] = 0
+      acc[courseId]++
+      return acc
+    }, {} as Record<string, number>)
+
+    Object.entries(progressByCourse).forEach(([courseId, completedCount]) => {
+      const course = coursesData?.find(c => c.id === courseId)
+      if (course) {
+        const totalLessons = course.chapters.reduce((total, chapter) => total + chapter.lessons.length, 0)
+        const progressPercentage = Math.round((completedCount / totalLessons) * 100)
+        courseProgress.set(courseId, progressPercentage)
+      }
+    })
+  }
+
+  // Transform data
+  const transformedCourses: Course[] = (coursesData || []).map(course => {
+    const totalLessons = course.chapters.reduce((total, chapter) => total + chapter.lessons.length, 0)
+    const enrolled = enrolledCourseIds.has(course.id)
+    const progress = enrolled ? (courseProgress.get(course.id) || 0) : 0
+
+    return {
+      id: course.id,
+      title: course.title,
+      description: course.description,
+      duration: course.duration,
+      level: course.level,
+      thumbnail: course.thumbnail,
+      instructor: course.instructor,
+      rating: course.rating,
+      students: course.students,
+      enrolled,
+      progress,
+      totalLessons
+    }
+  })
+
+  const enrolledCourses = transformedCourses.filter(course => course.enrolled)
+  const availableCourses = transformedCourses.filter(course => !course.enrolled)
+
+  return { enrolledCourses, availableCourses }
+}
 
 export default async function CoursesPage() {
   const supabase = createServerComponentClient({ cookies })
@@ -87,8 +145,7 @@ export default async function CoursesPage() {
     redirect('/auth/login')
   }
 
-  const enrolledCourses = courses.filter(course => course.enrolled)
-  const availableCourses = courses.filter(course => !course.enrolled)
+  const { enrolledCourses, availableCourses } = await getCourses(user.id)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -122,7 +179,7 @@ export default async function CoursesPage() {
                       <div>
                         <CardTitle className="text-lg">{course.title}</CardTitle>
                         <CardDescription className="text-sm">
-                          {course.level} • {course.lessons} lessons
+                          {course.level} • {course.totalLessons} lessons
                         </CardDescription>
                       </div>
                     </div>
@@ -171,7 +228,7 @@ export default async function CoursesPage() {
                     <div>
                       <CardTitle className="text-lg">{course.title}</CardTitle>
                       <CardDescription className="text-sm">
-                        {course.level} • {course.lessons} lessons
+                        {course.level} • {course.totalLessons} lessons
                       </CardDescription>
                     </div>
                   </div>
