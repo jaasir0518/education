@@ -70,6 +70,4 @@ export const toast = ({
   variant = 'default',
 }: Omit<Toast, 'id' | 'duration'>) => {
   console.log(`[${variant.toUpperCase()}] ${title}${description ? `: ${description}` : ''}`)
-
-
-  
+}
