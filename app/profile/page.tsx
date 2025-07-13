@@ -295,7 +295,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/hooks/use-toast'
-import { Loader2, Upload } from 'lucide-react'
+import { Loader2, Upload, User, Edit, Calendar, Globe, Mail } from 'lucide-react'
 
 interface UserProfile {
   id: string
@@ -320,6 +320,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [activeTab, setActiveTab] = useState<'view' | 'edit'>('view')
   const [formData, setFormData] = useState({
     username: '',
     full_name: '',
@@ -511,6 +513,510 @@ export default function ProfilePage() {
     )
   }
 
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Error",
+        description: "Please select a valid image file",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "Image must be smaller than 5MB",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setUploadingAvatar(true)
+    
+    try {
+      // Create form data
+      const formData = new FormData()
+      formData.append('avatar', file)
+
+      // Upload to API
+      const response = await fetch('/api/profile/avatar', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to upload avatar')
+      }
+
+      const data = await response.json()
+      
+      // Update form data with new avatar URL
+      setFormData(prev => ({ ...prev, avatar_url: data.avatar_url }))
+      
+      toast({
+        title: "Success",
+        description: "Avatar uploaded successfully",
+      })
+    } catch (error) {
+      console.error('Error uploading avatar:', error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to upload avatar",
+        variant: "destructive"
+      })
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
+  const removeAvatar = () => {
+    setFormData(prev => ({ ...prev, avatar_url: '' }))
+  }
+
+  // Tab Navigation Component
+  const TabNavigation = () => (
+    <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
+      <button
+        onClick={() => setActiveTab('view')}
+        className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all ${
+          activeTab === 'view'
+            ? 'bg-white text-blue-600 shadow-sm'
+            : 'text-gray-600 hover:text-gray-900'
+        }`}
+      >
+        <User className="w-4 h-4 mr-2" />
+        View Profile
+      </button>
+      <button
+        onClick={() => setActiveTab('edit')}
+        className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all ${
+          activeTab === 'edit'
+            ? 'bg-white text-blue-600 shadow-sm'
+            : 'text-gray-600 hover:text-gray-900'
+        }`}
+      >
+        <Edit className="w-4 h-4 mr-2" />
+        Edit Profile
+      </button>
+    </div>
+  )
+
+  // Profile View Component
+  const ProfileView = () => (
+    <div className="space-y-6">
+      {/* Profile Header */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center space-x-6">
+            <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+              {profile?.avatar_url ? (
+                <img 
+                  src={profile.avatar_url} 
+                  alt="Profile" 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                <span className="text-2xl text-gray-500">
+                  {profile?.full_name ? profile.full_name[0].toUpperCase() : '👤'}
+                </span>
+              )}
+            </div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                {profile?.full_name || 'No name set'}
+              </h2>
+              <p className="text-gray-600 mb-2">
+                @{profile?.username || 'No username set'}
+              </p>
+              <div className="flex items-center text-sm text-gray-500">
+                <Calendar className="w-4 h-4 mr-1" />
+                <span>Member since {new Date(profile?.created_at || '').toLocaleDateString()}</span>
+              </div>
+            </div>
+            <Button 
+              onClick={() => setActiveTab('edit')}
+              variant="outline"
+              className="flex items-center"
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              Edit Profile
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Profile Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile Information</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Email</Label>
+              <div className="flex items-center mt-1 p-3 bg-gray-50 rounded-md">
+                <Mail className="w-4 h-4 text-gray-400 mr-2" />
+                <span className="text-gray-900">{userData?.email || 'Not available'}</span>
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Username</Label>
+              <div className="flex items-center mt-1 p-3 bg-gray-50 rounded-md">
+                <User className="w-4 h-4 text-gray-400 mr-2" />
+                <span className="text-gray-900">{profile?.username || 'Not set'}</span>
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Full Name</Label>
+              <div className="flex items-center mt-1 p-3 bg-gray-50 rounded-md">
+                <User className="w-4 h-4 text-gray-400 mr-2" />
+                <span className="text-gray-900">{profile?.full_name || 'Not set'}</span>
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Website</Label>
+              <div className="flex items-center mt-1 p-3 bg-gray-50 rounded-md">
+                <Globe className="w-4 h-4 text-gray-400 mr-2" />
+                {profile?.website ? (
+                  <a 
+                    href={profile.website} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    {profile.website}
+                  </a>
+                ) : (
+                  <span className="text-gray-900">Not set</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Account Statistics */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Account Statistics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600 mb-1">0</div>
+              <div className="text-sm text-gray-600">Courses Enrolled</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600 mb-1">0</div>
+              <div className="text-sm text-gray-600">Certificates Earned</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600 mb-1">0%</div>
+              <div className="text-sm text-gray-600">Average Progress</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent Activity */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between py-2 border-b">
+              <span className="text-sm text-gray-600">Last login</span>
+              <span className="text-sm font-medium">
+                {userData?.last_sign_in_at ? 
+                  new Date(userData.last_sign_in_at).toLocaleDateString() : 
+                  'N/A'
+                }
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2 border-b">
+              <span className="text-sm text-gray-600">Profile created</span>
+              <span className="text-sm font-medium">
+                {new Date(profile?.created_at || '').toLocaleDateString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-sm text-gray-600">Profile updated</span>
+              <span className="text-sm font-medium">
+                {profile?.updated_at ? 
+                  new Date(profile.updated_at).toLocaleDateString() : 
+                  'Never'
+                }
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
+  // Profile Edit Component
+  const ProfileEdit = () => (
+    <div className="space-y-6">
+      {/* Personal Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Personal Information</CardTitle>
+          <CardDescription>
+            Update your personal details and contact information
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input 
+                id="email" 
+                type="email" 
+                value={userData?.email || ''} 
+                disabled
+                className="bg-gray-50"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Email cannot be changed
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="username">Username</Label>
+              <Input 
+                id="username" 
+                type="text" 
+                value={formData.username}
+                onChange={(e) => handleInputChange('username', e.target.value)}
+                placeholder="Enter your username"
+                className={errors.username ? 'border-red-500' : ''}
+              />
+              {errors.username && (
+                <p className="text-xs text-red-500 mt-1">{errors.username}</p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                Must be at least 3 characters
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="full_name">Full Name</Label>
+            <Input 
+              id="full_name" 
+              type="text" 
+              value={formData.full_name}
+              onChange={(e) => handleInputChange('full_name', e.target.value)}
+              placeholder="Enter your full name"
+            />
+          </div>
+
+          {/* Avatar Upload Section */}
+          <div>
+            <Label className="text-sm font-medium text-gray-700">Profile Picture</Label>
+            <div className="mt-2 flex items-center space-x-6">
+              {/* Avatar Preview */}
+              <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                {formData.avatar_url ? (
+                  <img 
+                    src={formData.avatar_url} 
+                    alt="Profile Preview" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                ) : (
+                  <span className="text-xl text-gray-500">
+                    {formData.full_name ? formData.full_name[0].toUpperCase() : '👤'}
+                  </span>
+                )}
+              </div>
+              
+              {/* Upload Controls */}
+              <div className="flex flex-col space-y-2">
+                <div className="flex space-x-2">
+                  <label htmlFor="avatar-upload">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      disabled={uploadingAvatar}
+                      className="cursor-pointer"
+                      asChild
+                    >
+                      <span>
+                        {uploadingAvatar ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Upload Image
+                          </>
+                        )}
+                      </span>
+                    </Button>
+                  </label>
+                  
+                  {formData.avatar_url && (
+                    <Button 
+                      type="button"
+                      variant="ghost" 
+                      size="sm"
+                      onClick={removeAvatar}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                
+                <input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                />
+                
+                <p className="text-xs text-gray-500">
+                  JPG, PNG, GIF up to 5MB
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Avatar URL Fallback */}
+          <div>
+            <Label htmlFor="avatar_url">
+              Avatar URL 
+              <span className="text-xs text-gray-500 ml-1">(Alternative to upload)</span>
+            </Label>
+            <Input 
+              id="avatar_url" 
+              type="url" 
+              value={formData.avatar_url}
+              onChange={(e) => handleInputChange('avatar_url', e.target.value)}
+              placeholder="https://example.com/avatar.jpg"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Or paste a link to your profile picture
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="website">Website</Label>
+            <Input 
+              id="website" 
+              type="url" 
+              value={formData.website}
+              onChange={(e) => handleInputChange('website', e.target.value)}
+              placeholder="https://your-website.com"
+              className={errors.website ? 'border-red-500' : ''}
+            />
+            {errors.website && (
+              <p className="text-xs text-red-500 mt-1">{errors.website}</p>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <Button 
+              onClick={handleSave}
+              disabled={saving || !hasChanges()}
+            >
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Changes
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleCancel}
+              disabled={!hasChanges()}
+            >
+              Cancel
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Security Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Security Settings</CardTitle>
+          <CardDescription>
+            Manage your account security and authentication
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div>
+              <h4 className="font-medium">Password</h4>
+              <p className="text-sm text-gray-600">
+                Change your account password
+              </p>
+            </div>
+            <Button variant="outline" disabled>
+              Change Password
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div>
+              <h4 className="font-medium">Two-Factor Authentication</h4>
+              <p className="text-sm text-gray-600">
+                Add an extra layer of security
+              </p>
+            </div>
+            <Button variant="outline" disabled>
+              Enable 2FA
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Danger Zone */}
+      <Card className="border-red-200">
+        <CardHeader>
+          <CardTitle className="text-red-600">Danger Zone</CardTitle>
+          <CardDescription>
+            Irreversible and destructive actions
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg">
+            <div>
+              <h4 className="font-medium text-red-600">Delete Account</h4>
+              <p className="text-sm text-gray-600">
+                Permanently delete your account and all data
+              </p>
+            </div>
+            <Button 
+              variant="destructive" 
+              size="sm"
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Account
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -541,239 +1047,11 @@ export default function ProfilePage() {
           <p className="text-gray-600">Manage your account information and preferences</p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Profile Overview */}
-          <div className="lg:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle>Profile Overview</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Avatar */}
-                <div className="flex flex-col items-center">
-                  <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4 relative overflow-hidden">
-                    {formData.avatar_url ? (
-                      <img 
-                        src={formData.avatar_url} 
-                        alt="Profile" 
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none'
-                        }}
-                      />
-                    ) : (
-                      <span className="text-2xl text-gray-500">
-                        {formData.full_name ? formData.full_name[0].toUpperCase() : '👤'}
-                      </span>
-                    )}
-                  </div>
-                  <Button variant="outline" size="sm" disabled>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Change Avatar
-                  </Button>
-                  <p className="text-xs text-gray-500 mt-1 text-center">
-                    Use the Avatar URL field below
-                  </p>
-                </div>
+        {/* Tab Navigation */}
+        <TabNavigation />
 
-                {/* Quick Stats */}
-                <div className="border-t pt-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Member since</span>
-                      <span className="text-sm font-medium">
-                        {new Date(profile.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Last login</span>
-                      <span className="text-sm font-medium">
-                        {userData.last_sign_in_at ? 
-                          new Date(userData.last_sign_in_at).toLocaleDateString() : 
-                          'N/A'
-                        }
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Username</span>
-                      <span className="text-sm font-medium">
-                        {profile.username || 'Not set'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Profile Form */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Personal Information */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Personal Information</CardTitle>
-                <CardDescription>
-                  Update your personal details and contact information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      value={userData.email || ''} 
-                      disabled
-                      className="bg-gray-50"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Email cannot be changed
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="username">Username</Label>
-                    <Input 
-                      id="username" 
-                      type="text" 
-                      value={formData.username}
-                      onChange={(e) => handleInputChange('username', e.target.value)}
-                      placeholder="Enter your username"
-                      className={errors.username ? 'border-red-500' : ''}
-                    />
-                    {errors.username && (
-                      <p className="text-xs text-red-500 mt-1">{errors.username}</p>
-                    )}
-                    <p className="text-xs text-gray-500 mt-1">
-                      Must be at least 3 characters
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="full_name">Full Name</Label>
-                  <Input 
-                    id="full_name" 
-                    type="text" 
-                    value={formData.full_name}
-                    onChange={(e) => handleInputChange('full_name', e.target.value)}
-                    placeholder="Enter your full name"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="avatar_url">Avatar URL</Label>
-                  <Input 
-                    id="avatar_url" 
-                    type="url" 
-                    value={formData.avatar_url}
-                    onChange={(e) => handleInputChange('avatar_url', e.target.value)}
-                    placeholder="https://example.com/avatar.jpg"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Link to your profile picture
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="website">Website</Label>
-                  <Input 
-                    id="website" 
-                    type="url" 
-                    value={formData.website}
-                    onChange={(e) => handleInputChange('website', e.target.value)}
-                    placeholder="https://your-website.com"
-                    className={errors.website ? 'border-red-500' : ''}
-                  />
-                  {errors.website && (
-                    <p className="text-xs text-red-500 mt-1">{errors.website}</p>
-                  )}
-                </div>
-
-                <div className="flex gap-3">
-                  <Button 
-                    onClick={handleSave}
-                    disabled={saving || !hasChanges()}
-                  >
-                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Save Changes
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={handleCancel}
-                    disabled={!hasChanges()}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Security Settings */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Security Settings</CardTitle>
-                <CardDescription>
-                  Manage your account security and authentication
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h4 className="font-medium">Password</h4>
-                    <p className="text-sm text-gray-600">
-                      Change your account password
-                    </p>
-                  </div>
-                  <Button variant="outline" disabled>
-                    Change Password
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h4 className="font-medium">Two-Factor Authentication</h4>
-                    <p className="text-sm text-gray-600">
-                      Add an extra layer of security
-                    </p>
-                  </div>
-                  <Button variant="outline" disabled>
-                    Enable 2FA
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Danger Zone */}
-            <Card className="border-red-200">
-              <CardHeader>
-                <CardTitle className="text-red-600">Danger Zone</CardTitle>
-                <CardDescription>
-                  Irreversible and destructive actions
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-red-600">Delete Account</h4>
-                    <p className="text-sm text-gray-600">
-                      Permanently delete your account and all data
-                    </p>
-                  </div>
-                  <Button 
-                    variant="destructive" 
-                    size="sm"
-                    onClick={handleDeleteAccount}
-                    disabled={deleting}
-                  >
-                    {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Delete Account
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        {/* Tab Content */}
+        {activeTab === 'view' ? <ProfileView /> : <ProfileEdit />}
       </div>
     </div>
   )
