@@ -387,6 +387,36 @@ export default function ProfilePage() {
       setErrors(prev => ({ ...prev, [field]: '' }))
     }
   }
+  
+  const compressImage = (file: File, maxWidth: number = 800, quality: number = 0.8): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')!
+    const img = new Image()
+    
+    img.onload = () => {
+      // Calculate new dimensions
+      const ratio = Math.min(maxWidth / img.width, maxWidth / img.height)
+      canvas.width = img.width * ratio
+      canvas.height = img.height * ratio
+      
+      // Draw and compress
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob)
+        } else {
+          reject(new Error('Failed to compress image'))
+        }
+      }, 'image/jpeg', quality)
+    }
+    
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+
+
 
   const validateForm = () => {
     const newErrors = { username: '', website: '' }
@@ -513,72 +543,165 @@ export default function ProfilePage() {
     )
   }
 
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+// Enhanced avatar upload function
+const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0]
+  if (!file) return
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    toast({
+      title: "Error",
+      description: "Please select a valid image file (JPG, PNG, GIF, or WebP)",
+      variant: "destructive"
+    })
+    return
+  }
+
+  // Validate file size (5MB limit)
+  if (file.size > 5 * 1024 * 1024) {
+    toast({
+      title: "Error",
+      description: "Image must be smaller than 5MB",
+      variant: "destructive"
+    })
+    return
+  }
+
+  setUploadingAvatar(true)
+  
+  try {
+    let fileToUpload = file
+
+    // Compress image if it's too large
+    if (file.size > 1024 * 1024) { // 1MB
       toast({
-        title: "Error",
-        description: "Please select a valid image file",
-        variant: "destructive"
+        title: "Compressing image...",
+        description: "Please wait while we optimize your image",
       })
-      return
+      
+      const compressedBlob = await compressImage(file)
+      fileToUpload = new File([compressedBlob!], file.name, { type: 'image/jpeg' })
     }
 
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Error",
-        description: "Image must be smaller than 5MB",
-        variant: "destructive"
-      })
-      return
+    // Create form data
+    const formData = new FormData()
+    formData.append('avatar', fileToUpload)
+
+    // Upload to API
+    const response = await fetch('/api/profile/avatar', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Failed to upload avatar')
     }
 
-    setUploadingAvatar(true)
+    const data = await response.json()
     
-    try {
-      // Create form data
-      const formData = new FormData()
-      formData.append('avatar', file)
+    // Update form data with new avatar URL
+    setFormData(prev => ({ ...prev, avatar_url: data.avatar_url }))
+    
+    // Update profile state
+    setProfile(prev => prev ? { ...prev, avatar_url: data.avatar_url } : prev)
+    
+    toast({
+      title: "Success",
+      description: "Avatar uploaded successfully",
+    })
+  } catch (error) {
+    console.error('Error uploading avatar:', error)
+    toast({
+      title: "Error",
+      description: error instanceof Error ? error.message : "Failed to upload avatar",
+      variant: "destructive"
+    })
+  } finally {
+    setUploadingAvatar(false)
+    // Clear the input
+    event.target.value = ''
+  }
+}
 
-      // Upload to API
-      const response = await fetch('/api/profile/avatar', {
-        method: 'POST',
-        body: formData,
-      })
+// Enhanced remove avatar function
+const removeAvatar = async () => {
+  if (!formData.avatar_url) return
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to upload avatar')
-      }
+  const confirmed = window.confirm('Are you sure you want to remove your profile picture?')
+  if (!confirmed) return
 
-      const data = await response.json()
-      
-      // Update form data with new avatar URL
-      setFormData(prev => ({ ...prev, avatar_url: data.avatar_url }))
-      
-      toast({
-        title: "Success",
-        description: "Avatar uploaded successfully",
-      })
-    } catch (error) {
-      console.error('Error uploading avatar:', error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to upload avatar",
-        variant: "destructive"
-      })
-    } finally {
-      setUploadingAvatar(false)
+  setUploadingAvatar(true)
+  
+  try {
+    const response = await fetch('/api/profile/avatar', {
+      method: 'DELETE',
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Failed to remove avatar')
     }
+
+    // Update form data
+    setFormData(prev => ({ ...prev, avatar_url: '' }))
+    
+    // Update profile state
+    setProfile(prev => prev ? { ...prev, avatar_url: null } : prev)
+    
+    toast({
+      title: "Success",
+      description: "Avatar removed successfully",
+    })
+  } catch (error) {
+    console.error('Error removing avatar:', error)
+    toast({
+      title: "Error",
+      description: error instanceof Error ? error.message : "Failed to remove avatar",
+      variant: "destructive"
+    })
+  } finally {
+    setUploadingAvatar(false)
+  }
+}
+
+const AvatarDisplay = ({ src, alt, size = 'md', name }: { 
+  src?: string | null
+  alt: string
+  size?: 'sm' | 'md' | 'lg'
+  name?: string | null
+}) => {
+  const sizeClasses = {
+    sm: 'w-8 h-8 text-sm',
+    md: 'w-20 h-20 text-xl',
+    lg: 'w-24 h-24 text-2xl'
   }
 
-  const removeAvatar = () => {
-    setFormData(prev => ({ ...prev, avatar_url: '' }))
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
   }
+
+  return (
+    <div className={`${sizeClasses[size]} bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center overflow-hidden ring-2 ring-white shadow-lg`}>
+      {src ? (
+        <img 
+          src={src} 
+          alt={alt}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none'
+          }}
+        />
+      ) : (
+        <span className="text-white font-semibold">
+          {name ? getInitials(name) : '👤'}
+        </span>
+      )}
+    </div>
+  )
+}
 
   // Tab Navigation Component
   const TabNavigation = () => (
@@ -825,25 +948,15 @@ export default function ProfilePage() {
           <div>
             <Label className="text-sm font-medium text-gray-700">Profile Picture</Label>
             <div className="mt-2 flex items-center space-x-6">
-              {/* Avatar Preview */}
-              <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
-                {formData.avatar_url ? (
-                  <img 
-                    src={formData.avatar_url} 
-                    alt="Profile Preview" 
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
-                ) : (
-                  <span className="text-xl text-gray-500">
-                    {formData.full_name ? formData.full_name[0].toUpperCase() : '👤'}
-                  </span>
-                )}
-              </div>
+              {/* Enhanced Avatar Preview */}
+              <AvatarDisplay 
+                src={formData.avatar_url} 
+                alt="Profile Preview" 
+                size="lg"
+                name={formData.full_name}
+              />
               
-              {/* Upload Controls */}
+             {/* Upload Controls */}
               <div className="flex flex-col space-y-2">
                 <div className="flex space-x-2">
                   <label htmlFor="avatar-upload">
@@ -877,9 +990,14 @@ export default function ProfilePage() {
                       variant="ghost" 
                       size="sm"
                       onClick={removeAvatar}
+                      disabled={uploadingAvatar}
                       className="text-red-600 hover:text-red-700"
                     >
-                      Remove
+                      {uploadingAvatar ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Remove'
+                      )}
                     </Button>
                   )}
                 </div>
@@ -893,12 +1011,11 @@ export default function ProfilePage() {
                 />
                 
                 <p className="text-xs text-gray-500">
-                  JPG, PNG, GIF up to 5MB
+                  JPG, PNG, GIF, WebP up to 5MB. Images will be automatically optimized.
                 </p>
               </div>
             </div>
           </div>
-
           {/* Avatar URL Fallback */}
           <div>
             <Label htmlFor="avatar_url">

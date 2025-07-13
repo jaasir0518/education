@@ -7,7 +7,7 @@ import Navigation from '@/components/navigation'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'My Auth App',
+  title: 'learning platform',
   description: 'A Next.js app with Supabase authentication',
 }
 
