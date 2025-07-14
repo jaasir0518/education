@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { BookOpen, Award, TrendingUp, CheckCircle, Clock, Target, Star, Trophy, Users, Calendar } from 'lucide-react';
+import { formatDateShort } from '@/lib/date-utils';
 
 export default function DashboardPage() {
     const [selectedPeriod, setSelectedPeriod] = useState('current');
@@ -254,7 +255,7 @@ export default function DashboardPage() {
                                                     </span>
                                                     <span className="flex items-center">
                                                         <Calendar className="w-4 h-4 mr-1" />
-                                                        Due: {new Date(course.dueDate).toLocaleDateString()}
+                                                        Due: {formatDateShort(course.dueDate)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -322,7 +323,7 @@ export default function DashboardPage() {
                                                 </p>
                                                 {achievement.earned && achievement.date && (
                                                     <p className="text-xs text-gray-500 mt-1">
-                                                        Earned: {new Date(achievement.date).toLocaleDateString()}
+                                                        Earned: {formatDateShort(achievement.date)}
                                                     </p>
                                                 )}
                                             </div>

@@ -296,6 +296,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/hooks/use-toast'
 import { Loader2, Upload, User, Edit, Calendar, Globe, Mail } from 'lucide-react'
+import { formatDateShort } from '@/lib/date-utils'
 
 interface UserProfile {
   id: string
@@ -763,7 +764,7 @@ const AvatarDisplay = ({ src, alt, size = 'md', name }: {
               </p>
               <div className="flex items-center text-sm text-gray-500">
                 <Calendar className="w-4 h-4 mr-1" />
-                <span>Member since {new Date(profile?.created_at || '').toLocaleDateString()}</span>
+                <span>Member since {formatDateShort(profile?.created_at || '')}</span>
               </div>
             </div>
             <Button 
@@ -862,7 +863,7 @@ const AvatarDisplay = ({ src, alt, size = 'md', name }: {
               <span className="text-sm text-gray-600">Last login</span>
               <span className="text-sm font-medium">
                 {userData?.last_sign_in_at ? 
-                  new Date(userData.last_sign_in_at).toLocaleDateString() : 
+                  formatDateShort(userData.last_sign_in_at) : 
                   'N/A'
                 }
               </span>
@@ -870,14 +871,14 @@ const AvatarDisplay = ({ src, alt, size = 'md', name }: {
             <div className="flex items-center justify-between py-2 border-b">
               <span className="text-sm text-gray-600">Profile created</span>
               <span className="text-sm font-medium">
-                {new Date(profile?.created_at || '').toLocaleDateString()}
+                {formatDateShort(profile?.created_at || '')}
               </span>
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-gray-600">Profile updated</span>
               <span className="text-sm font-medium">
                 {profile?.updated_at ? 
-                  new Date(profile.updated_at).toLocaleDateString() : 
+                  formatDateShort(profile.updated_at) : 
                   'Never'
                 }
               </span>

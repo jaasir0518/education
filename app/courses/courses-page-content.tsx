@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Clock, Users, Star, BookOpen, Play, AlertCircle, Filter } from 'lucide-react'
 import Link from 'next/link'
+import { formatNumber } from '@/lib/date-utils'
 
 // Types
 interface Course {
@@ -130,7 +131,7 @@ function CourseCard({ course, isEnrolled = false }: { course: Course; isEnrolled
           </div>
           <div className="flex items-center gap-1">
             <Users className="w-3 h-3" />
-            <span>{course.students.toLocaleString()}</span>
+            <span>{formatNumber(course.students)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />

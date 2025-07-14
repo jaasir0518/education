@@ -6,6 +6,10 @@
 // import { Badge } from '@/components/ui/badge'
 // import Link from 'next/link'
 // import { EnrollButton } from '@/components/ui/enroll-button'
+// import { VideoPlayer } from '@/components/ui/video-player'
+// import { CertificateToggle } from '@/components/ui/certificate-toggle'
+// import { CertificateGenerator } from '@/components/ui/certificate-generator'
+// import { formatDateShort, formatNumber } from '@/lib/date-utils'
 
 // // Types
 // interface Lesson {
@@ -35,8 +39,28 @@
 //   rating: number
 //   students: number
 //   created_at: string
+//   video_url: string | null
+//   video_thumbnail_url: string | null
+//   video_duration: number | null
 //   chapters: Chapter[]
 //   enrolled: boolean
+//   video_completed: boolean
+// }
+
+// interface Certificate {
+//   id: string
+//   certificate_number: string
+//   first_name: string
+//   last_name: string
+//   issued_date: string
+//   completion_date: string
+// }
+
+// interface UserProfile {
+//   id: string
+//   first_name: string | null
+//   last_name: string | null
+//   email: string
 // }
 
 // // Database functions
@@ -58,6 +82,9 @@
 //       rating,
 //       students,
 //       created_at,
+//       video_url,
+//       video_thumbnail_url,
+//       video_duration,
 //       chapters (
 //         id,
 //         title,
@@ -114,6 +141,16 @@
 //     }
 //   }
 
+//   // Check if course video is completed
+//   const { data: videoProgress, error: videoError } = await supabase
+//     .from('video_progress')
+//     .select('completed')
+//     .eq('user_id', userId)
+//     .eq('course_id', courseId)
+//     .single()
+
+//   const videoCompleted = !videoError && videoProgress?.completed
+
 //   // Transform data
 //   const transformedCourse: CourseDetail = {
 //     id: courseData.id,
@@ -127,7 +164,11 @@
 //     rating: courseData.rating,
 //     students: courseData.students,
 //     created_at: courseData.created_at,
+//     video_url: courseData.video_url,
+//     video_thumbnail_url: courseData.video_thumbnail_url,
+//     video_duration: courseData.video_duration,
 //     enrolled: !!enrolled,
+//     video_completed: videoCompleted,
 //     chapters: courseData.chapters
 //       .sort((a, b) => a.order_index - b.order_index)
 //       .map(chapter => ({
@@ -149,6 +190,51 @@
 //   return transformedCourse
 // }
 
+// async function getUserCertificate(userId: string, courseId: string): Promise<Certificate | null> {
+//   const supabase = createServerComponentClient({ cookies })
+  
+//   const { data: certificate, error } = await supabase
+//     .from('certificates')
+//     .select('*')
+//     .eq('user_id', userId)
+//     .eq('course_id', courseId)
+//     .single()
+
+//   if (error || !certificate) {
+//     return null
+//   }
+
+//   return certificate
+// }
+
+// async function getUserProfile(userId: string): Promise<UserProfile | null> {
+//   const supabase = createServerComponentClient({ cookies })
+  
+//   const { data: profile, error } = await supabase
+//     .from('profiles')
+//     .select('id, first_name, last_name, email')
+//     .eq('id', userId)
+//     .single()
+
+//   if (error || !profile) {
+//     return null
+//   }
+
+//   return profile
+// }
+
+// function formatDuration(seconds: number): string {
+//   const hours = Math.floor(seconds / 3600)
+//   const minutes = Math.floor((seconds % 3600) / 60)
+//   const remainingSeconds = seconds % 60
+
+//   if (hours > 0) {
+//     return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+//   } else {
+//     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+//   }
+// }
+
 // interface CourseDetailPageProps {
 //   params: {
 //     courseId: string
@@ -167,6 +253,7 @@
 //   }
 
 //   const course = await getCourseById(params.courseId, user.id)
+//   const userProfile = await getUserProfile(user.id)
 
 //   if (!course) {
 //     return (
@@ -191,6 +278,13 @@
 //   }, 0)
 
 //   const progressPercentage = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0
+//   const isCourseCompleted = progressPercentage === 100
+
+//   // Get existing certificate if any
+//   const existingCertificate = await getUserCertificate(user.id, course.id)
+
+//   // Check if video is completed and user is eligible for certificate
+//   const isEligibleForCertificate = course.enrolled && course.video_completed && !existingCertificate
 
 //   return (
 //     <div className="container mx-auto px-4 py-8">
@@ -207,6 +301,33 @@
 //         <div className="grid lg:grid-cols-3 gap-8">
 //           {/* Main Content */}
 //           <div className="lg:col-span-2">
+//             {/* Course Video Section */}
+//             {course.video_url && (
+//               <Card className="mb-8">
+//                 <CardContent className="p-0 relative">
+//                   <VideoPlayer
+//                     videoUrl={course.video_url}
+//                     thumbnailUrl={course.video_thumbnail_url}
+//                     title={course.title}
+//                     enrolled={course.enrolled}
+//                   />
+                  
+//                   {/* Certificate Toggle - Show when video is completed */}
+//                   {course.enrolled && course.video_completed && (
+//                     <CertificateToggle
+//                       courseId={course.id}
+//                       courseTitle={course.title}
+//                       instructor={course.instructor}
+//                       completionDate={new Date()}
+//                       userEmail={user.email}
+//                       userId={user.id}
+//                       existingCertificate={existingCertificate}
+//                     />
+//                   )}
+//                 </CardContent>
+//               </Card>
+//             )}
+
 //             {/* Course Header */}
 //             <div className="mb-8">
 //               <div className="flex items-center gap-3 mb-4">
@@ -221,7 +342,25 @@
 //                 <Badge variant="secondary">{course.level}</Badge>
 //                 <Badge variant="outline">{totalLessons} lessons</Badge>
 //                 <Badge variant="outline">{course.duration}</Badge>
+//                 {course.video_duration && (
+//                   <Badge variant="outline">🎥 {formatDuration(course.video_duration)}</Badge>
+//                 )}
 //                 <Badge variant="outline">⭐ {course.rating}</Badge>
+//                 {course.video_completed && (
+//                   <Badge variant="default" className="bg-green-500">
+//                     ✅ Video Completed
+//                   </Badge>
+//                 )}
+//                 {isCourseCompleted && (
+//                   <Badge variant="default" className="bg-green-500">
+//                     ✅ Course Completed
+//                   </Badge>
+//                 )}
+//                 {existingCertificate && (
+//                   <Badge variant="default" className="bg-blue-500">
+//                     🏆 Certificate Earned
+//                   </Badge>
+//                 )}
 //               </div>
 
 //               {course.enrolled && (
@@ -232,7 +371,9 @@
 //                   </div>
 //                   <div className="w-full h-3 bg-gray-200 rounded-full">
 //                     <div 
-//                       className="h-full bg-blue-500 rounded-full transition-all duration-300"
+//                       className={`h-full rounded-full transition-all duration-300 ${
+//                         isCourseCompleted ? 'bg-green-500' : 'bg-blue-500'
+//                       }`}
 //                       style={{ width: `${progressPercentage}%` }}
 //                     ></div>
 //                   </div>
@@ -257,54 +398,16 @@
 //                   </div>
 //                   <div>
 //                     <p className="text-gray-500">Students</p>
-//                     <p className="font-medium">{course.students.toLocaleString()}</p>
+//                     <p className="font-medium">{formatNumber(course.students)}</p>
 //                   </div>
 //                   <div>
 //                     <p className="text-gray-500">Last Updated</p>
-//                     <p className="font-medium">{new Date(course.created_at).toLocaleDateString()}</p>
+//                     <p className="font-medium">{formatDateShort(course.created_at)}</p>
 //                   </div>
 //                   <div>
 //                     <p className="text-gray-500">Language</p>
 //                     <p className="font-medium">English</p>
 //                   </div>
-//                 </div>
-//               </CardContent>
-//             </Card>
-
-//             {/* Course Content */}
-//             <Card>
-//               <CardHeader>
-//                 <CardTitle>Course Content</CardTitle>
-//                 <CardDescription>
-//                   {course.chapters.length} chapters • {totalLessons} lessons • {course.duration} total
-//                 </CardDescription>
-//               </CardHeader>
-//               <CardContent>
-//                 <div className="space-y-4">
-//                   {course.chapters.map((chapter) => (
-//                     <div key={chapter.id} className="border rounded-lg p-4">
-//                       <h3 className="font-semibold mb-3">{chapter.title}</h3>
-//                       <div className="space-y-2">
-//                         {chapter.lessons.map((lesson) => (
-//                           <div key={lesson.id} className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 rounded">
-//                             <div className="flex items-center gap-3">
-//                               <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-//                                 lesson.completed ? 'bg-green-500' : 'bg-gray-300'
-//                               }`}>
-//                                 {lesson.completed && (
-//                                   <span className="text-white text-xs">✓</span>
-//                                 )}
-//                               </div>
-//                               <span className={`text-sm ${lesson.completed ? 'text-gray-900' : 'text-gray-600'}`}>
-//                                 {lesson.title}
-//                               </span>
-//                             </div>
-//                             <span className="text-xs text-gray-500">{lesson.duration}</span>
-//                           </div>
-//                         ))}
-//                       </div>
-//                     </div>
-//                   ))}
 //                 </div>
 //               </CardContent>
 //             </Card>
@@ -316,11 +419,45 @@
 //               <CardContent className="p-6">
 //                 {course.enrolled ? (
 //                   <div className="space-y-4">
-//                     <Button className="w-full" size="lg" asChild>
-//                       <Link href={`/courses/${course.id}/learn`}>
-//                         Continue Learning
-//                       </Link>
-//                     </Button>
+//                     {existingCertificate ? (
+//                       <div className="space-y-2">
+//                         <Button className="w-full bg-blue-500 hover:bg-blue-600" size="lg" disabled>
+//                           🏆 Certificate Earned
+//                         </Button>
+//                         <Button 
+//                           variant="outline" 
+//                           className="w-full"
+//                           onClick={() => {
+//                             // Download existing certificate
+//                             const link = document.createElement('a')
+//                             link.href = `/api/certificates/${existingCertificate.id}/download`
+//                             link.download = `${course.title}-Certificate.pdf`
+//                             link.click()
+//                           }}
+//                         >
+//                           📥 Download Certificate
+//                         </Button>
+//                       </div>
+//                     ) : isEligibleForCertificate ? (
+//                       <CertificateGenerator
+//                         courseId={course.id}
+//                         courseTitle={course.title}
+//                         instructor={course.instructor}
+//                         userId={user.id}
+//                         userEmail={user.email || ''}
+//                         userProfile={userProfile}
+//                       />
+//                     ) : isCourseCompleted ? (
+//                       <Button className="w-full bg-green-500 hover:bg-green-600" size="lg" disabled>
+//                         ✅ Course Completed
+//                       </Button>
+//                     ) : (
+//                       <Button className="w-full" size="lg" asChild>
+//                         <Link href={`/courses/${course.id}/learn`}>
+//                           Continue Learning
+//                         </Link>
+//                       </Button>
+//                     )}
 //                     <Button variant="outline" className="w-full">
 //                       Download Materials
 //                     </Button>
@@ -344,6 +481,12 @@
 //                       <span>📹</span>
 //                       <span>{course.duration} of video content</span>
 //                     </div>
+//                     {course.video_duration && (
+//                       <div className="flex items-center gap-2">
+//                         <span>🎬</span>
+//                         <span>Course preview ({formatDuration(course.video_duration)})</span>
+//                       </div>
+//                     )}
 //                     <div className="flex items-center gap-2">
 //                       <span>📝</span>
 //                       <span>{totalLessons} lessons</span>
@@ -380,6 +523,8 @@ import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { EnrollButton } from '@/components/ui/enroll-button'
 import { VideoPlayer } from '@/components/ui/video-player'
+import { CertificateGenerator } from '@/components/ui/certificate-generator'
+import { formatDateShort, formatNumber } from '@/lib/date-utils'
 
 // Types
 interface Lesson {
@@ -414,6 +559,23 @@ interface CourseDetail {
   video_duration: number | null
   chapters: Chapter[]
   enrolled: boolean
+  video_completed: boolean
+}
+
+interface Certificate {
+  id: string
+  certificate_number: string
+  first_name: string
+  last_name: string
+  issued_date: string
+  completion_date: string
+}
+
+interface UserProfile {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string
 }
 
 // Database functions
@@ -494,6 +656,16 @@ async function getCourseById(courseId: string, userId: string): Promise<CourseDe
     }
   }
 
+  // Check if course video is completed
+  const { data: videoProgress, error: videoError } = await supabase
+    .from('video_progress')
+    .select('completed')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .single()
+
+  const videoCompleted = !videoError && videoProgress?.completed
+
   // Transform data
   const transformedCourse: CourseDetail = {
     id: courseData.id,
@@ -511,6 +683,7 @@ async function getCourseById(courseId: string, userId: string): Promise<CourseDe
     video_thumbnail_url: courseData.video_thumbnail_url,
     video_duration: courseData.video_duration,
     enrolled: !!enrolled,
+    video_completed: videoCompleted,
     chapters: courseData.chapters
       .sort((a, b) => a.order_index - b.order_index)
       .map(chapter => ({
@@ -530,6 +703,39 @@ async function getCourseById(courseId: string, userId: string): Promise<CourseDe
   }
 
   return transformedCourse
+}
+
+async function getUserCertificate(userId: string, courseId: string): Promise<Certificate | null> {
+  const supabase = createServerComponentClient({ cookies })
+  
+  const { data: certificate, error } = await supabase
+    .from('certificates')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .single()
+
+  if (error || !certificate) {
+    return null
+  }
+
+  return certificate
+}
+
+async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  const supabase = createServerComponentClient({ cookies })
+  
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, email')
+    .eq('id', userId)
+    .single()
+
+  if (error || !profile) {
+    return null
+  }
+
+  return profile
 }
 
 function formatDuration(seconds: number): string {
@@ -562,6 +768,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
   }
 
   const course = await getCourseById(params.courseId, user.id)
+  const userProfile = await getUserProfile(user.id)
 
   if (!course) {
     return (
@@ -586,6 +793,13 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
   }, 0)
 
   const progressPercentage = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0
+  const isCourseCompleted = progressPercentage === 100
+
+  // Get existing certificate if any
+  const existingCertificate = await getUserCertificate(user.id, course.id)
+
+  // Check if video is completed and user is eligible for certificate
+  const isEligibleForCertificate = course.enrolled && course.video_completed && !existingCertificate
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -605,12 +819,14 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
             {/* Course Video Section */}
             {course.video_url && (
               <Card className="mb-8">
-                <CardContent className="p-0">
+                <CardContent className="p-0 relative">
                   <VideoPlayer
                     videoUrl={course.video_url}
                     thumbnailUrl={course.video_thumbnail_url}
                     title={course.title}
                     enrolled={course.enrolled}
+                    courseId={course.id}
+                    userId={user.id}
                   />
                 </CardContent>
               </Card>
@@ -634,6 +850,21 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                   <Badge variant="outline">🎥 {formatDuration(course.video_duration)}</Badge>
                 )}
                 <Badge variant="outline">⭐ {course.rating}</Badge>
+                {course.video_completed && (
+                  <Badge variant="default" className="bg-green-500">
+                    ✅ Video Completed
+                  </Badge>
+                )}
+                {isCourseCompleted && (
+                  <Badge variant="default" className="bg-green-500">
+                    ✅ Course Completed
+                  </Badge>
+                )}
+                {existingCertificate && (
+                  <Badge variant="default" className="bg-blue-500">
+                    🏆 Certificate Earned
+                  </Badge>
+                )}
               </div>
 
               {course.enrolled && (
@@ -644,7 +875,9 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                   </div>
                   <div className="w-full h-3 bg-gray-200 rounded-full">
                     <div 
-                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        isCourseCompleted ? 'bg-green-500' : 'bg-blue-500'
+                      }`}
                       style={{ width: `${progressPercentage}%` }}
                     ></div>
                   </div>
@@ -669,11 +902,11 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                   </div>
                   <div>
                     <p className="text-gray-500">Students</p>
-                    <p className="font-medium">{course.students.toLocaleString()}</p>
+                    <p className="font-medium">{formatNumber(course.students)}</p>
                   </div>
                   <div>
                     <p className="text-gray-500">Last Updated</p>
-                    <p className="font-medium">{new Date(course.created_at).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateShort(course.created_at)}</p>
                   </div>
                   <div>
                     <p className="text-gray-500">Language</p>
@@ -682,44 +915,6 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                 </div>
               </CardContent>
             </Card>
-
-            {/* Course Content */}
-            {/* <Card>
-              <CardHeader>
-                <CardTitle>Course Content</CardTitle>
-                <CardDescription>
-                  {course.chapters.length} chapters • {totalLessons} lessons • {course.duration} total
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {course.chapters.map((chapter) => (
-                    <div key={chapter.id} className="border rounded-lg p-4">
-                      <h3 className="font-semibold mb-3">{chapter.title}</h3>
-                      <div className="space-y-2">
-                        {chapter.lessons.map((lesson) => (
-                          <div key={lesson.id} className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 rounded">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                                lesson.completed ? 'bg-green-500' : 'bg-gray-300'
-                              }`}>
-                                {lesson.completed && (
-                                  <span className="text-white text-xs">✓</span>
-                                )}
-                              </div>
-                              <span className={`text-sm ${lesson.completed ? 'text-gray-900' : 'text-gray-600'}`}>
-                                {lesson.title}
-                              </span>
-                            </div>
-                            <span className="text-xs text-gray-500">{lesson.duration}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card> */}
           </div>
 
           {/* Sidebar */}
@@ -728,11 +923,56 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
               <CardContent className="p-6">
                 {course.enrolled ? (
                   <div className="space-y-4">
-                    <Button className="w-full" size="lg" asChild>
-                      <Link href={`/courses/${course.id}/learn`}>
-                        Continue Learning
-                      </Link>
-                    </Button>
+                    {/* Certificate Generation Section */}
+                    {isEligibleForCertificate && (
+                      <CertificateGenerator
+                        courseId={course.id}
+                        courseTitle={course.title}
+                        instructor={course.instructor}
+                        userId={user.id}
+                        userEmail={user.email || ''}
+                        userProfile={userProfile}
+                      />
+                    )}
+
+                    {/* Existing Certificate Display */}
+                    {existingCertificate && (
+                      <div className="space-y-2">
+                        <Button className="w-full bg-blue-500 hover:bg-blue-600" size="lg" disabled>
+                          🏆 Certificate Earned
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="w-full"
+                          onClick={() => {
+                            // Trigger certificate download
+                            const link = document.createElement('a')
+                            link.href = `/api/certificates/generate`
+                            link.click()
+                          }}
+                        >
+                          📥 Download Certificate
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Course Progress Actions */}
+                    {!isEligibleForCertificate && !existingCertificate && (
+                      <>
+                        {course.video_completed ? (
+                          <Button className="w-full bg-green-500 hover:bg-green-600" size="lg" disabled>
+                            ✅ Video Completed
+                          </Button>
+                        ) : (
+                          <Button className="w-full" size="lg" asChild>
+                            <Link href={`/courses/${course.id}/learn`}>
+                              Continue Learning
+                            </Link>
+                          </Button>
+                        )}
+                      </>
+                    )}
+
                     <Button variant="outline" className="w-full">
                       Download Materials
                     </Button>

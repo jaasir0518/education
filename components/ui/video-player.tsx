@@ -1,106 +1,317 @@
 'use client'
 
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Play, Lock } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { Play, Pause, Volume2, VolumeX, Maximize, Settings } from 'lucide-react'
+import { Button } from './button'
 
 interface VideoPlayerProps {
   videoUrl: string
-  thumbnailUrl?: string | null
+  thumbnailUrl: string | null
   title: string
   enrolled: boolean
+  courseId: string
+  userId: string
+  onVideoComplete?: () => void
 }
 
-export function VideoPlayer({ videoUrl, thumbnailUrl, title, enrolled }: VideoPlayerProps) {
+export function VideoPlayer({ 
+  videoUrl, 
+  thumbnailUrl, 
+  title, 
+  enrolled, 
+  courseId, 
+  userId,
+  onVideoComplete 
+}: VideoPlayerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [showVideo, setShowVideo] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [progress, setProgress] = useState(0)
+  const [isCompleted, setIsCompleted] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
+  
+  const supabase = createClientComponentClient()
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handlePlayClick = () => {
-    if (!enrolled) {
-      // If not enrolled, just show a preview or redirect to enrollment
-      return
+  // Load existing progress
+  useEffect(() => {
+    if (enrolled && courseId && userId) {
+      loadVideoProgress()
     }
-    setShowVideo(true)
-    setIsPlaying(true)
+  }, [enrolled, courseId, userId])
+
+  const loadVideoProgress = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('video_progress')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('course_id', courseId)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading video progress:', error)
+        return
+      }
+
+      if (data) {
+        setProgress(data.watched_duration)
+        setIsCompleted(data.completed)
+        if (videoRef.current && data.watched_duration > 0) {
+          videoRef.current.currentTime = data.watched_duration
+        }
+      }
+    } catch (error) {
+      console.error('Error loading video progress:', error)
+    }
   }
 
-  const handleVideoLoad = () => {
-    setIsPlaying(true)
+  const saveVideoProgress = async (watchedDuration: number, totalDuration: number) => {
+    if (!enrolled || !courseId || !userId) return
+
+    try {
+      const completionThreshold = 0.9 // 90% completion threshold
+      const completed = watchedDuration >= totalDuration * completionThreshold
+      
+      const { error } = await supabase
+        .from('video_progress')
+        .upsert({
+          user_id: userId,
+          course_id: courseId,
+          watched_duration: Math.floor(watchedDuration),
+          total_duration: Math.floor(totalDuration),
+          completed: completed,
+          last_watched_at: new Date().toISOString()
+        })
+
+      if (error) {
+        console.error('Error saving video progress:', error)
+      } else if (completed && !isCompleted) {
+        setIsCompleted(true)
+        onVideoComplete?.()
+      }
+    } catch (error) {
+      console.error('Error saving video progress:', error)
+    }
   }
 
-  if (!enrolled) {
-    return (
-      <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
-        {/* Thumbnail or placeholder */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage: thumbnailUrl 
-              ? `url(${thumbnailUrl})` 
-              : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-          }}
-        >
-          <div className="absolute inset-0 bg-black bg-opacity-40" />
-        </div>
-        
-        {/* Preview overlay */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="mb-4">
-              <Lock className="w-12 h-12 mx-auto mb-2 opacity-80" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">Course Preview</h3>
-            <p className="text-sm opacity-80 mb-4">Enroll to access full course content</p>
-          </div>
-        </div>
-      </div>
-    )
+  const togglePlay = () => {
+    if (!videoRef.current) return
+    
+    if (isPlaying) {
+      videoRef.current.pause()
+    } else {
+      videoRef.current.play()
+      setHasStarted(true)
+    }
+    setIsPlaying(!isPlaying)
   }
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return
+    
+    const current = videoRef.current.currentTime
+    const total = videoRef.current.duration
+    
+    setCurrentTime(current)
+    setDuration(total)
+    
+    if (enrolled && hasStarted && total > 0) {
+      // Save progress every 10 seconds
+      if (Math.floor(current) % 10 === 0) {
+        saveVideoProgress(current, total)
+      }
+    }
+  }
+
+  const handleLoadedMetadata = () => {
+    if (!videoRef.current) return
+    setDuration(videoRef.current.duration)
+  }
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return
+    const time = parseFloat(e.target.value)
+    videoRef.current.currentTime = time
+    setCurrentTime(time)
+  }
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return
+    const vol = parseFloat(e.target.value)
+    setVolume(vol)
+    videoRef.current.volume = vol
+    setIsMuted(vol === 0)
+  }
+
+  const toggleMute = () => {
+    if (!videoRef.current) return
+    if (isMuted) {
+      videoRef.current.volume = volume
+      setIsMuted(false)
+    } else {
+      videoRef.current.volume = 0
+      setIsMuted(true)
+    }
+  }
+
+  const toggleFullscreen = () => {
+    if (!videoRef.current) return
+    
+    if (!isFullscreen) {
+      if (videoRef.current.requestFullscreen) {
+        videoRef.current.requestFullscreen()
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen()
+      }
+    }
+  }
+
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60)
+    const seconds = Math.floor(time % 60)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  // Auto-hide controls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false)
+      }
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [isPlaying, showControls])
+
+  // Save progress on component unmount
+  useEffect(() => {
+    return () => {
+      if (videoRef.current && enrolled && hasStarted) {
+        saveVideoProgress(videoRef.current.currentTime, videoRef.current.duration)
+      }
+    }
+  }, [enrolled, hasStarted])
 
   return (
-    <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
-      {!showVideo ? (
-        // Thumbnail with play button
-        <div 
-          className="absolute inset-0 bg-cover bg-center cursor-pointer"
-          onClick={handlePlayClick}
-          style={{
-            backgroundImage: thumbnailUrl 
-              ? `url(${thumbnailUrl})` 
-              : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-          }}
-        >
-          <div className="absolute inset-0 bg-black bg-opacity-30" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Button
-              size="lg"
-              className="bg-white bg-opacity-90 hover:bg-opacity-100 text-black rounded-full w-16 h-16 p-0"
-              onClick={handlePlayClick}
-            >
-              <Play className="w-8 h-8 ml-1" />
-            </Button>
-          </div>
-          <div className="absolute bottom-4 left-4 right-4">
-            <h3 className="text-white text-lg font-semibold drop-shadow-lg">
-              {title}
-            </h3>
-          </div>
-        </div>
-      ) : (
-        // Video player
-        <div className="absolute inset-0">
-          <video
-            className="w-full h-full object-cover"
-            controls
-            autoPlay
-            onLoadedData={handleVideoLoad}
-            poster={thumbnailUrl || undefined}
+    <div 
+      className="relative w-full aspect-video bg-black rounded-lg overflow-hidden group"
+      onMouseEnter={() => setShowControls(true)}
+      onMouseMove={() => setShowControls(true)}
+      onMouseLeave={() => setShowControls(false)}
+    >
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        poster={thumbnailUrl || undefined}
+        className="w-full h-full object-cover"
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false)
+          if (enrolled) {
+            saveVideoProgress(duration, duration)
+          }
+        }}
+        onClick={togglePlay}
+      />
+
+      {/* Play/Pause Overlay */}
+      {!isPlaying && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+          <Button
+            size="lg"
+            className="rounded-full w-16 h-16 flex items-center justify-center bg-white bg-opacity-90 hover:bg-opacity-100"
+            onClick={togglePlay}
           >
-            <source src={videoUrl} type="video/mp4" />
-            <source src={videoUrl} type="video/webm" />
-            <source src={videoUrl} type="video/ogg" />
-            Your browser does not support the video tag.
-          </video>
+            <Play className="w-6 h-6 text-black ml-1" />
+          </Button>
+        </div>
+      )}
+
+      {/* Completion Badge */}
+      {isCompleted && (
+        <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+          ✅ Completed
+        </div>
+      )}
+
+      {/* Controls */}
+      {showControls && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4">
+          {/* Progress Bar */}
+          <div className="mb-4">
+            <input
+              type="range"
+              min="0"
+              max={duration || 0}
+              value={currentTime}
+              onChange={handleSeek}
+              className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+              style={{
+                background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #4b5563 ${(currentTime / duration) * 100}%, #4b5563 100%)`
+              }}
+            />
+          </div>
+
+          {/* Control Buttons */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={togglePlay}
+                className="text-white hover:text-gray-300"
+              >
+                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+              </Button>
+
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleMute}
+                  className="text-white hover:text-gray-300"
+                >
+                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </Button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-16 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <span className="text-white text-sm">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleFullscreen}
+                className="text-white hover:text-gray-300"
+              >
+                <Maximize className="w-5 h-5" />
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
