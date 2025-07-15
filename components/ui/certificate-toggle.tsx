@@ -14,8 +14,13 @@ interface Certificate {
   certificate_number: string
   first_name: string
   last_name: string
+  course_title: string
+  instructor: string
   issued_date: string
   completion_date: string
+  user_id: string
+  course_id: string
+  created_at: string
 }
 
 interface CertificateToggleProps {
@@ -67,6 +72,8 @@ export function CertificateToggle({
           course_id: courseId,
           first_name: firstName,
           last_name: lastName,
+          course_title: courseTitle,
+          instructor: instructor,
           certificate_number: certificateNumber,
           completion_date: completionDate.toISOString(),
         }),
@@ -179,8 +186,10 @@ export function CertificateToggle({
     // Date
     ctx.fillText(`Completion Date: ${formatDateShort(completionDate)}`, canvas.width / 2 - 300, 550)
     
-    // Certificate number
-    const certNumber = generatedCertificate?.certificate_number || existingCertificate?.certificate_number || `CERT-${Date.now()}`
+    // Certificate number - Fixed the type issue
+    const certNumber = generatedCertificate?.certificate_number || 
+                      existingCertificate?.certificate_number || 
+                      `CERT-${Date.now()}`
     ctx.fillText(`Certificate Number: ${certNumber}`, canvas.width / 2 - 300, 580)
 
     // Award seal
@@ -387,7 +396,9 @@ export function CertificateToggle({
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-blue-500" />
                         <span className="font-medium">Certificate #:</span>
-                        <span className="text-xs">{generatedCertificate?.certificate_number ?? 'N/A'}</span>
+                        const certNumber = generatedCertificate?.certificate_number || 
+                  existingCertificate?.certificate_number || 
+                  `CERT-${Date.now()}`
                       </div>
                     </div>
 

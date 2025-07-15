@@ -542,6 +542,28 @@ interface Chapter {
   lessons: Lesson[]
 }
 
+interface TestQuestion {
+  id: string
+  question_text: string
+  question_type: string
+  options: any
+  correct_answer: string
+  explanation: string
+  difficulty_level: string
+  order_index: number
+}
+
+interface TestAttempt {
+  id: string
+  score: number
+  total_questions: number
+  correct_answers: number
+  passing_score: number
+  passed: boolean
+  completed_at: string
+  time_taken: number
+}
+
 interface CourseDetail {
   id: string
   title: string
@@ -560,6 +582,9 @@ interface CourseDetail {
   chapters: Chapter[]
   enrolled: boolean
   video_completed: boolean
+  test_questions: TestQuestion[]
+  latest_test_attempt: TestAttempt | null
+  test_passed: boolean
 }
 
 interface Certificate {
@@ -666,6 +691,23 @@ async function getCourseById(courseId: string, userId: string): Promise<CourseDe
 
   const videoCompleted = !videoError && videoProgress?.completed
 
+  // Get test questions
+  const { data: testQuestions, error: testError } = await supabase
+    .from('test_questions')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('order_index')
+
+  // Get latest test attempt
+  const { data: latestAttempt, error: attemptError } = await supabase
+    .from('test_attempts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
   // Transform data
   const transformedCourse: CourseDetail = {
     id: courseData.id,
@@ -684,6 +726,9 @@ async function getCourseById(courseId: string, userId: string): Promise<CourseDe
     video_duration: courseData.video_duration,
     enrolled: !!enrolled,
     video_completed: videoCompleted,
+    test_questions: testQuestions || [],
+    latest_test_attempt: latestAttempt || null,
+    test_passed: latestAttempt?.passed || false,
     chapters: courseData.chapters
       .sort((a, b) => a.order_index - b.order_index)
       .map(chapter => ({
@@ -750,6 +795,17 @@ function formatDuration(seconds: number): string {
   }
 }
 
+function formatTimeSpent(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  
+  if (minutes > 0) {
+    return `${minutes}m ${remainingSeconds}s`
+  } else {
+    return `${remainingSeconds}s`
+  }
+}
+
 interface CourseDetailPageProps {
   params: {
     courseId: string
@@ -799,7 +855,11 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
   const existingCertificate = await getUserCertificate(user.id, course.id)
 
   // Check if video is completed and user is eligible for certificate
-  const isEligibleForCertificate = course.enrolled && course.video_completed && !existingCertificate
+  const isEligibleForCertificate = course.enrolled && course.video_completed && course.test_passed && !existingCertificate
+
+  // Test availability conditions
+  const hasTestQuestions = course.test_questions.length > 0
+  const canTakeTest = course.enrolled && course.video_completed && hasTestQuestions
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -849,10 +909,18 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                 {course.video_duration && (
                   <Badge variant="outline">🎥 {formatDuration(course.video_duration)}</Badge>
                 )}
+                {hasTestQuestions && (
+                  <Badge variant="outline">📝 {course.test_questions.length} questions</Badge>
+                )}
                 <Badge variant="outline">⭐ {course.rating}</Badge>
                 {course.video_completed && (
                   <Badge variant="default" className="bg-green-500">
                     ✅ Video Completed
+                  </Badge>
+                )}
+                {course.test_passed && (
+                  <Badge variant="default" className="bg-green-500">
+                    ✅ Test Passed
                   </Badge>
                 )}
                 {isCourseCompleted && (
@@ -884,6 +952,90 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                 </div>
               )}
             </div>
+
+            {/* Test Section */}
+            {hasTestQuestions && course.enrolled && (
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    📝 Course Test
+                    {course.test_passed && (
+                      <Badge variant="default" className="bg-green-500">
+                        ✅ Passed
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    Test your knowledge with {course.test_questions.length} questions. 
+                    You need to score 70% or higher to pass.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {course.latest_test_attempt && (
+                    <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                      <h4 className="font-semibold mb-2">Latest Test Result</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500">Score</p>
+                          <p className={`font-bold ${course.latest_test_attempt.passed ? 'text-green-600' : 'text-red-600'}`}>
+                            {course.latest_test_attempt.score}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Correct Answers</p>
+                          <p className="font-medium">
+                            {course.latest_test_attempt.correct_answers}/{course.latest_test_attempt.total_questions}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Time Taken</p>
+                          <p className="font-medium">
+                            {course.latest_test_attempt.time_taken 
+                              ? formatTimeSpent(course.latest_test_attempt.time_taken)
+                              : 'N/A'
+                            }
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Status</p>
+                          <p className={`font-medium ${course.latest_test_attempt.passed ? 'text-green-600' : 'text-red-600'}`}>
+                            {course.latest_test_attempt.passed ? 'Passed' : 'Failed'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    {canTakeTest ? (
+                      <>
+                        <Button asChild>
+                          <Link href={`/courses/${course.id}/test`}>
+                            {course.latest_test_attempt ? 'Retake Test' : 'Take Test'}
+                          </Link>
+                        </Button>
+                        {course.latest_test_attempt && (
+                          <Button variant="outline" asChild>
+                            <Link href={`/courses/${course.id}/test/results`}>
+                              View Results
+                            </Link>
+                          </Button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-sm text-gray-500">
+                        {!course.enrolled 
+                          ? 'Enroll in the course to take the test'
+                          : !course.video_completed 
+                            ? 'Complete the course video to unlock the test'
+                            : 'Test not available'
+                        }
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Course Description */}
             <Card className="mb-8">
@@ -956,6 +1108,21 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                       </div>
                     )}
 
+                    {/* Test Actions */}
+                    {canTakeTest && !course.test_passed && (
+                      <Button className="w-full bg-purple-500 hover:bg-purple-600" size="lg" asChild>
+                        <Link href={`/courses/${course.id}/test`}>
+                          📝 {course.latest_test_attempt ? 'Retake Test' : 'Take Test'}
+                        </Link>
+                      </Button>
+                    )}
+
+                    {course.test_passed && (
+                      <Button className="w-full bg-green-500 hover:bg-green-600" size="lg" disabled>
+                        ✅ Test Passed
+                      </Button>
+                    )}
+
                     {/* Course Progress Actions */}
                     {!isEligibleForCertificate && !existingCertificate && (
                       <>
@@ -1006,6 +1173,12 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                       <span>📝</span>
                       <span>{totalLessons} lessons</span>
                     </div>
+                    {hasTestQuestions && (
+                      <div className="flex items-center gap-2">
+                        <span>🧪</span>
+                        <span>Course test ({course.test_questions.length} questions)</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <span>📱</span>
                       <span>Access on mobile and desktop</span>
