@@ -92,6 +92,18 @@ const mockCourseData = {
   passingScore: 70
 };
 
+interface Answer {
+  [questionId: string]: string | string[];
+}
+
+interface TestResults {
+  correct: number;
+  total: number;
+  percentage: number;
+  timeTaken: number;
+  passed: boolean;
+}
+
 interface CertificateData {
   id: string;
   certificate_number: string;
@@ -110,7 +122,7 @@ export default function TestInterface() {
   const [timeLeft, setTimeLeft] = useState(30 * 60); // 30 minutes in seconds
   const [testStarted, setTestStarted] = useState(false);
   const [testCompleted, setTestCompleted] = useState(false);
-  const [testResults, setTestResults] = useState(null);
+  const [testResults, setTestResults] = useState<TestResults | null>(null);
   const [certificateForm, setCertificateForm] = useState({
     firstName: '',
     lastName: '',
@@ -147,10 +159,6 @@ export default function TestInterface() {
     setTestStarted(true);
     setCurrentStep('test');
   };
-
-  interface Answer {
-    [questionId: string]: string | string[];
-  }
 
   const handleAnswerChange = (questionId: string, answer: string | string[]): void => {
     setAnswers((prev: Answer) => ({
@@ -205,17 +213,18 @@ export default function TestInterface() {
     const results = calculateScore();
     const timeTaken = (30 * 60) - timeLeft;
     
-    setTestResults({
+    const testResults: TestResults = {
       ...results,
       timeTaken,
       passed: results.percentage >= mockCourseData.passingScore
-    });
+    };
     
+    setTestResults(testResults);
     setCurrentStep('results');
   };
 
   const handleGenerateCertificate = () => {
-    if (testResults.passed) {
+    if (testResults?.passed) {
       setCurrentStep('certificate');
     }
   };
@@ -399,7 +408,7 @@ export default function TestInterface() {
           <CardContent>
             {question.question_type === 'multiple_choice' || question.question_type === 'true_false' ? (
               <RadioGroup 
-                value={userAnswer || ''} 
+                value={userAnswer as string || ''} 
                 onValueChange={(value) => handleAnswerChange(question.id, value)}
               >
                 {question.options.map((option, index) => (
@@ -417,9 +426,9 @@ export default function TestInterface() {
                   <div key={index} className="flex items-center space-x-2">
                     <Checkbox 
                       id={`${question.id}-${index}`}
-                      checked={(userAnswer || []).includes(option)}
+                      checked={((userAnswer as string[]) || []).includes(option)}
                       onCheckedChange={(checked) => {
-                        const currentAnswers = userAnswer || [];
+                        const currentAnswers = (userAnswer as string[]) || [];
                         if (checked) {
                           handleAnswerChange(question.id, [...currentAnswers, option]);
                         } else {
@@ -479,7 +488,7 @@ export default function TestInterface() {
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          {testResults.passed ? (
+          {testResults?.passed ? (
             <>
               <CheckCircle className="w-6 h-6 text-green-600" />
               Test Passed!
@@ -498,37 +507,37 @@ export default function TestInterface() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className={`border rounded-lg p-4 ${testResults.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+        <div className={`border rounded-lg p-4 ${testResults?.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Your Score</p>
-              <p className={`text-2xl font-bold ${testResults.passed ? 'text-green-600' : 'text-red-600'}`}>
-                {testResults.percentage}%
+              <p className={`text-2xl font-bold ${testResults?.passed ? 'text-green-600' : 'text-red-600'}`}>
+                {testResults?.percentage}%
               </p>
             </div>
             <div>
               <p className="text-gray-500">Correct Answers</p>
               <p className="text-2xl font-bold">
-                {testResults.correct}/{testResults.total}
+                {testResults?.correct}/{testResults?.total}
               </p>
             </div>
             <div>
               <p className="text-gray-500">Time Taken</p>
               <p className="font-medium">
-                {Math.floor(testResults.timeTaken / 60)}m {testResults.timeTaken % 60}s
+                {Math.floor((testResults?.timeTaken || 0) / 60)}m {(testResults?.timeTaken || 0) % 60}s
               </p>
             </div>
             <div>
               <p className="text-gray-500">Status</p>
-              <p className={`font-medium ${testResults.passed ? 'text-green-600' : 'text-red-600'}`}>
-                {testResults.passed ? 'Passed' : 'Failed'}
+              <p className={`font-medium ${testResults?.passed ? 'text-green-600' : 'text-red-600'}`}>
+                {testResults?.passed ? 'Passed' : 'Failed'}
               </p>
             </div>
           </div>
         </div>
         
         <div className="flex gap-2 justify-center">
-          {testResults.passed && (
+          {testResults?.passed && (
             <Button 
               onClick={handleGenerateCertificate}
               className="bg-blue-600 hover:bg-blue-700"
