@@ -1,468 +1,300 @@
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
-import { AlertCircle, Clock, CheckCircle, XCircle } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import Link from 'next/link'
+import { TestInterface } from '@/components/ui/test-interface'
 
+// Types
 interface TestQuestion {
   id: string
   question_text: string
-  question_type: 'multiple_choice' | 'true_false' | 'short_answer'
-  options: Record<string, string> | null
+  question_type: string
+  options: any
   correct_answer: string
-  explanation: string | null
-  difficulty_level: 'easy' | 'medium' | 'hard'
+  explanation: string
+  difficulty_level: string
   order_index: number
 }
 
-interface Course {
+interface TestAttempt {
+  id: string
+  score: number
+  total_questions: number
+  correct_answers: number
+  passing_score: number
+  passed: boolean
+  completed_at: string
+  time_taken: number
+}
+
+interface CourseInfo {
   id: string
   title: string
   instructor: string
+  thumbnail: string
 }
 
-interface TestComponentProps {
-  course: Course
+interface TestPageData {
+  course: CourseInfo
   questions: TestQuestion[]
-  userId: string
+  latestAttempt: TestAttempt | null
+  hasExistingCertificate: boolean
 }
 
-interface TestResult {
-  questionId: string
-  userAnswer: string
-  correctAnswer: string
-  isCorrect: boolean
-  explanation: string | null
+// Database functions
+async function getTestData(courseId: string, userId: string): Promise<TestPageData | null> {
+  const supabase = createServerComponentClient({ cookies })
+  
+  // Get course info
+  const { data: courseData, error: courseError } = await supabase
+    .from('courses')
+    .select('id, title, instructor, thumbnail')
+    .eq('id', courseId)
+    .single()
+
+  if (courseError || !courseData) {
+    console.error('Error fetching course:', courseError)
+    return null
+  }
+
+  // Get test questions
+  const { data: questions, error: questionsError } = await supabase
+    .from('test_questions')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('order_index')
+
+  if (questionsError || !questions || questions.length === 0) {
+    console.error('Error fetching test questions:', questionsError)
+    return null
+  }
+
+  // Get latest test attempt
+  const { data: latestAttempt, error: attemptError } = await supabase
+    .from('test_attempts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  // Check if user already has a certificate
+  const { data: certificate, error: certError } = await supabase
+    .from('certificates')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('course_id', courseId)
+    .single()
+
+  return {
+    course: courseData,
+    questions: questions,
+    latestAttempt: latestAttempt || null,
+    hasExistingCertificate: !certError && !!certificate
+  }
 }
 
-export function TestComponent({ course, questions, userId }: TestComponentProps) {
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [timeLeft, setTimeLeft] = useState(30 * 60) // 30 minutes in seconds
-  const [testStarted, setTestStarted] = useState(false)
-  const [testCompleted, setTestCompleted] = useState(false)
-  const [testResults, setTestResults] = useState<TestResult[]>([])
-  const [score, setScore] = useState(0)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+function formatTimeSpent(seconds: number): string {
+  if (!seconds || seconds <= 0) return '0s'
+  
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+  
+  if (minutes > 0) {
+    return `${minutes}m ${remainingSeconds}s`
+  } else {
+    return `${remainingSeconds}s`
+  }
+}
 
-  const currentQuestion = questions[currentQuestionIndex]
-  const totalQuestions = questions.length
-  const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100
+interface TestPageProps {
+  params: {
+    courseId: string
+  }
+}
 
-  // Timer effect
-  useEffect(() => {
-    if (!testStarted || testCompleted) return
+export default async function TestPage({ params }: TestPageProps) {
+  const supabase = createServerComponentClient({ cookies })
+  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          handleSubmitTest()
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [testStarted, testCompleted])
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  if (!user) {
+    redirect('/auth/login')
   }
 
-  const handleStartTest = () => {
-    setTestStarted(true)
-  }
+  const testData = await getTestData(params.courseId, user.id)
 
-  const handleAnswerChange = (questionId: string, answer: string) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: answer
-    }))
-  }
-
-  const handleNextQuestion = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1)
-    }
-  }
-
-  const handlePreviousQuestion = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(prev => prev - 1)
-    }
-  }
-
-  const handleSubmitTest = async () => {
-    setIsSubmitting(true)
-    
-    try {
-      // Calculate results
-      const results: TestResult[] = questions.map(question => ({
-        questionId: question.id,
-        userAnswer: answers[question.id] || '',
-        correctAnswer: question.correct_answer,
-        isCorrect: answers[question.id] === question.correct_answer,
-        explanation: question.explanation
-      }))
-
-      const correctCount = results.filter(r => r.isCorrect).length
-      const scorePercentage = (correctCount / totalQuestions) * 100
-      const passed = scorePercentage >= 70
-
-      // Submit to database
-      const response = await fetch('/api/test/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          courseId: course.id,
-          userId,
-          answers,
-          score: scorePercentage,
-          totalQuestions,
-          correctAnswers: correctCount,
-          passed,
-          timeLeft
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to submit test')
-      }
-
-      setTestResults(results)
-      setScore(scorePercentage)
-      setTestCompleted(true)
-    } catch (error) {
-      console.error('Error submitting test:', error)
-      // Handle error appropriately
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case 'easy': return 'bg-green-100 text-green-800'
-      case 'medium': return 'bg-yellow-100 text-yellow-800'
-      case 'hard': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  const renderQuestion = (question: TestQuestion) => {
-    const userAnswer = answers[question.id]
-
-    if (question.question_type === 'multiple_choice') {
-      return (
-        <div className="space-y-3">
-          {question.options && Object.entries(question.options).map(([key, value]) => (
-            <div key={key} className="flex items-center space-x-3">
-              <input
-                type="radio"
-                id={`${question.id}-${key}`}
-                name={question.id}
-                value={key}
-                checked={userAnswer === key}
-                onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-              />
-              <label 
-                htmlFor={`${question.id}-${key}`}
-                className="flex-1 cursor-pointer p-3 rounded-lg border hover:bg-gray-50"
-              >
-                <span className="font-medium">{key.toUpperCase()}.</span> {value}
-              </label>
-            </div>
-          ))}
-        </div>
-      )
-    }
-
-    if (question.question_type === 'true_false') {
-      return (
-        <div className="space-y-3">
-          {['true', 'false'].map(option => (
-            <div key={option} className="flex items-center space-x-3">
-              <input
-                type="radio"
-                id={`${question.id}-${option}`}
-                name={question.id}
-                value={option}
-                checked={userAnswer === option}
-                onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-              />
-              <label 
-                htmlFor={`${question.id}-${option}`}
-                className="flex-1 cursor-pointer p-3 rounded-lg border hover:bg-gray-50"
-              >
-                {option === 'true' ? 'True' : 'False'}
-              </label>
-            </div>
-          ))}
-        </div>
-      )
-    }
-
+  if (!testData) {
     return (
-      <textarea
-        className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        rows={4}
-        placeholder="Type your answer here..."
-        value={userAnswer || ''}
-        onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-      />
-    )
-  }
-
-  if (testCompleted) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Test Completed!</CardTitle>
-            <div className="flex justify-center mt-4">
-              {score >= 70 ? (
-                <CheckCircle className="w-16 h-16 text-green-500" />
-              ) : (
-                <XCircle className="w-16 h-16 text-red-500" />
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="text-center space-y-4">
-            <div className="text-4xl font-bold">
-              {score.toFixed(1)}%
-            </div>
-            <div className="text-lg">
-              {testResults.filter(r => r.isCorrect).length} out of {totalQuestions} correct
-            </div>
-            <Badge 
-              variant={score >= 70 ? "default" : "destructive"} 
-              className={score >= 70 ? "bg-green-500" : "bg-red-500"}
-            >
-              {score >= 70 ? "PASSED" : "FAILED"}
-            </Badge>
-            {score >= 70 && (
-              <div className="mt-4">
-                <p className="text-green-600 font-medium">
-                  Congratulations! You can now generate your certificate.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Review Your Answers</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {testResults.map((result, index) => {
-                const question = questions[index]
-                return (
-                  <div key={result.questionId} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium">Question {index + 1}</span>
-                      <div className="flex items-center space-x-2">
-                        <Badge className={getDifficultyColor(question.difficulty_level)}>
-                          {question.difficulty_level}
-                        </Badge>
-                        {result.isCorrect ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-500" />
-                        )}
-                      </div>
-                    </div>
-                    <p className="mb-3">{question.question_text}</p>
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="font-medium">Your Answer: </span>
-                        <span className={result.isCorrect ? 'text-green-600' : 'text-red-600'}>
-                          {result.userAnswer || 'No answer'}
-                        </span>
-                      </div>
-                      {!result.isCorrect && (
-                        <div>
-                          <span className="font-medium">Correct Answer: </span>
-                          <span className="text-green-600">{result.correctAnswer}</span>
-                        </div>
-                      )}
-                      {result.explanation && (
-                        <div className="mt-2 p-2 bg-blue-50 rounded">
-                          <span className="font-medium">Explanation: </span>
-                          {result.explanation}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="container mx-auto px-4 py-8">
         <div className="text-center">
-          <Button onClick={() => window.location.href = `/courses/${course.id}`}>
-            Back to Course
-          </Button>
+          <h1 className="text-2xl font-bold mb-4">Test Not Available</h1>
+          <p className="text-gray-600 mb-4">This course doesn't have a test or the test couldn't be loaded.</p>
+          <Link href={`/courses/${params.courseId}`}>
+            <Button>Back to Course</Button>
+          </Link>
         </div>
       </div>
     )
   }
 
-  if (!testStarted) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Course Certification Test</CardTitle>
-          <p className="text-gray-600">{course.title}</p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <strong>Test Instructions:</strong>
-              <ul className="mt-2 list-disc list-inside space-y-1">
-                <li>This test contains {totalQuestions} questions</li>
-                <li>You have 30 minutes to complete the test</li>
-                <li>You need to score at least 70% to pass</li>
-                <li>You can navigate between questions before submitting</li>
-                <li>Once submitted, you cannot retake the test</li>
-              </ul>
-            </AlertDescription>
-          </Alert>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{totalQuestions}</div>
-              <div className="text-sm text-gray-600">Total Questions</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">30</div>
-              <div className="text-sm text-gray-600">Minutes</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">70%</div>
-              <div className="text-sm text-gray-600">Passing Score</div>
-            </div>
-          </div>
-
-          <Button 
-            onClick={handleStartTest}
-            className="w-full"
-            size="lg"
-          >
-            Start Test
-          </Button>
-        </CardContent>
-      </Card>
-    )
-  }
+  const { course, questions, latestAttempt, hasExistingCertificate } = testData
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Certification Test</h1>
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Clock className="w-5 h-5" />
-            <span className="font-mono">{formatTime(timeLeft)}</span>
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Breadcrumb */}
+        <nav className="mb-6">
+          <div className="flex items-center space-x-2 text-sm text-gray-600">
+            <Link href="/courses" className="hover:text-gray-900">Courses</Link>
+            <span>›</span>
+            <Link href={`/courses/${course.id}`} className="hover:text-gray-900">{course.title}</Link>
+            <span>›</span>
+            <span>Test</span>
           </div>
-          <Badge variant="outline">
-            {currentQuestionIndex + 1} of {totalQuestions}
-          </Badge>
-        </div>
-      </div>
+        </nav>
 
-      {/* Progress */}
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm text-gray-600">
-          <span>Progress</span>
-          <span>{Math.round(progress)}%</span>
-        </div>
-        <Progress value={progress} className="h-2" />
-      </div>
+        {/* Course Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="text-4xl">{course.thumbnail}</div>
+            <div>
+              <h1 className="text-3xl font-bold mb-2">{course.title} - Test</h1>
+              <p className="text-gray-600">Test your knowledge with {questions.length} questions</p>
+            </div>
+          </div>
 
-      {/* Question */}
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-start">
-            <CardTitle className="text-lg">
-              Question {currentQuestionIndex + 1}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <Badge variant="outline">📝 {questions.length} questions</Badge>
+            <Badge variant="outline">👨‍🏫 {course.instructor}</Badge>
+            {latestAttempt && (
+              <Badge variant="default" className="bg-purple-500">
+                ✅ Previously Completed
+              </Badge>
+            )}
+            {latestAttempt?.passed && (
+              <Badge variant="default" className="bg-green-500">
+                ✅ Passed
+              </Badge>
+            )}
+            {hasExistingCertificate && (
+              <Badge variant="default" className="bg-blue-500">
+                🏆 Certificate Earned
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Previous Attempt Results */}
+        {latestAttempt && (
+          <Card className="mb-8 border-purple-200 bg-purple-50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-purple-800">
+                📊 Previous Test Result
+              </CardTitle>
+              <CardDescription className="text-purple-700">
+                Your latest test attempt results
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-white border border-purple-200 rounded-lg p-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-500">Score</p>
+                    <p className={`font-bold text-lg ${latestAttempt.passed ? 'text-green-600' : 'text-red-600'}`}>
+                      {latestAttempt.score}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Correct Answers</p>
+                    <p className="font-medium text-lg">
+                      {latestAttempt.correct_answers}/{latestAttempt.total_questions}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Time Taken</p>
+                    <p className="font-medium text-lg">
+                      {latestAttempt.time_taken 
+                        ? formatTimeSpent(latestAttempt.time_taken)
+                        : 'N/A'
+                      }
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Status</p>
+                    <p className={`font-medium text-lg ${latestAttempt.passed ? 'text-green-600' : 'text-red-600'}`}>
+                      {latestAttempt.passed ? 'Passed' : 'Failed'}
+                    </p>
+                  </div>
+                </div>
+                
+                {latestAttempt.passed && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-green-800 text-sm">
+                      🎉 Congratulations! You passed the test. 
+                      {!hasExistingCertificate && (
+                        <span> You can now generate your certificate from the course page!</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Test Instructions */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Test Instructions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <p>• Read each question carefully before selecting your answer</p>
+              <p>• You can change your answers before submitting</p>
+              <p>• There is no time limit - take your time to think through each question</p>
+              <p>• You need to score at least 70% to pass the test</p>
+              <p>• You can retake the test as many times as you want</p>
+              <p>• After passing, you'll be able to generate your certificate of completion</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Test Interface */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {latestAttempt ? 'Retake Test' : 'Start Test'}
             </CardTitle>
-            <Badge className={getDifficultyColor(currentQuestion.difficulty_level)}>
-              {currentQuestion.difficulty_level}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-lg">{currentQuestion.question_text}</p>
-          {renderQuestion(currentQuestion)}
-        </CardContent>
-      </Card>
+            <CardDescription>
+              Answer all {questions.length} questions to complete the test
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TestInterface
+              questions={questions}
+              courseId={course.id}
+              userId={user.id}
+              courseTitle={course.title}
+            />
+          </CardContent>
+        </Card>
 
-      {/* Navigation */}
-      <div className="flex justify-between">
-        <Button 
-          variant="outline" 
-          onClick={handlePreviousQuestion}
-          disabled={currentQuestionIndex === 0}
-        >
-          Previous
-        </Button>
-        
-        <div className="flex space-x-2">
-          {currentQuestionIndex === totalQuestions - 1 ? (
-            <Button 
-              onClick={handleSubmitTest}
-              disabled={isSubmitting}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {isSubmitting ? 'Submitting...' : 'Submit Test'}
-            </Button>
-          ) : (
-            <Button onClick={handleNextQuestion}>
-              Next
-            </Button>
-          )}
+        {/* Back to Course */}
+        <div className="mt-8 text-center">
+          <Button variant="outline" asChild>
+            <Link href={`/courses/${course.id}`}>
+              ← Back to Course
+            </Link>
+          </Button>
         </div>
       </div>
-
-      {/* Question Navigator */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Question Navigator</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-5 gap-2">
-            {questions.map((_, index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentQuestionIndex(index)}
-                className={`p-2 rounded text-sm font-medium ${
-                  index === currentQuestionIndex
-                    ? 'bg-blue-500 text-white'
-                    : answers[questions[index].id]
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {index + 1}
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
