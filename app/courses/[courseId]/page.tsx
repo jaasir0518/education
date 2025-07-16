@@ -601,7 +601,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                 <div className="space-y-4">
                   {/* Take Test Button */}
                   <Button className="w-full bg-blue-500 hover:bg-blue-600" size="lg" asChild>
-                    <Link href="http://localhost:3000/test">
+                    <Link href="/test">
                       📝 Take Test
                     </Link>
                   </Button>
