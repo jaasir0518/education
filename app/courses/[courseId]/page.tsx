@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { EnrollButton } from '@/components/ui/enroll-button'
 import { VideoPlayer } from '@/components/ui/video-player'
-import { CertificateGenerator } from '@/components/ui/certificate-generator'
 import { formatDateShort, formatNumber } from '@/lib/date-utils'
 
 // Types
@@ -357,15 +356,10 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
   // Get existing certificate if any
   const existingCertificate = await getUserCertificate(user.id, course.id)
 
-  // Updated certificate generation logic
+  // Test-related variables
   const hasTestQuestions = course.test_questions.length > 0
   const hasAttemptedTest = course.latest_test_attempt !== null
   const hasPassedTest = course.test_passed
-
-  // Certificate can be generated if:
-  // 1. No existing certificate AND
-  // 2. Either no test questions OR test has been passed
-  const canGenerateCertificate = !existingCertificate && (!hasTestQuestions || hasPassedTest)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -379,8 +373,8 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
           <p className="text-sm text-blue-700">
             This course is now open source! 
             {hasTestQuestions 
-              ? ' Complete the test to generate your certificate.' 
-              : ' Generate your certificate anytime.'
+              ? ' Complete the test to enhance your learning experience.' 
+              : ' Learn at your own pace and test your knowledge.'
             }
             Learn at your own pace and get recognized for your participation.
           </p>
@@ -507,11 +501,6 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
                         {' '}You can retake the test anytime to improve your score.
                       </span>
                     )}
-                    {hasTestQuestions && !hasPassedTest && (
-                      <span className="text-orange-600 font-medium">
-                        {' '}You need to pass this test to generate your certificate.
-                      </span>
-                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -568,72 +557,6 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
               </Card>
             )}
 
-            {/* Certificate Section */}
-            {canGenerateCertificate && (
-              <Card className="mb-8 border-blue-200 bg-blue-50">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-blue-800">
-                    🏆 Generate Your Certificate
-                    <Badge variant="default" className="bg-blue-500">
-                      ✅ Available
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription className="text-blue-700">
-                    {hasTestQuestions 
-                      ? 'Congratulations! You have passed the test. Generate your certificate of completion.'
-                      : 'Generate your certificate of completion for this course. No test required!'
-                    }
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-white border border-blue-200 rounded-lg p-4">
-                    <CertificateGenerator
-                      courseId={course.id}
-                      courseTitle={course.title}
-                      instructor={course.instructor}
-                      userId={user.id}
-                      userEmail={user.email || ''}
-                      userProfile={userProfile}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Test Required Message */}
-            {hasTestQuestions && !hasPassedTest && !existingCertificate && (
-              <Card className="mb-8 border-orange-200 bg-orange-50">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-orange-800">
-                    🏆 Certificate Requirements
-                    <Badge variant="default" className="bg-orange-500">
-                      ⏳ Test Required
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription className="text-orange-700">
-                    Complete and pass the course test to unlock your certificate of completion.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-white border border-orange-200 rounded-lg p-4">
-                    <p className="text-sm text-orange-700 mb-3">
-                      To generate your certificate, you need to:
-                    </p>
-                    <ul className="text-sm text-orange-700 space-y-1 mb-4">
-                      <li>• Complete the course test</li>
-                      <li>• Score at least {course.test_questions.length > 0 ? '70%' : 'the passing score'}</li>
-                      <li>• Certificate will be available immediately after passing</li>
-                    </ul>
-                    <Button asChild className="bg-orange-500 hover:bg-orange-600">
-                      <Link href={`/courses/${course.id}/test`}>
-                        {hasAttemptedTest ? 'Retake Test' : 'Take Test Now'}
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             {/* Course Description */}
             <Card className="mb-8">
               <CardHeader>
@@ -671,83 +594,12 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
             <Card className="sticky top-6">
               <CardContent className="p-6">
                 <div className="space-y-4">
-                  {/* Certificate generation */}
-                  {canGenerateCertificate && (
-                    <div className="space-y-2">
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                        <div className="flex items-center gap-2 text-blue-800">
-                          <span>🏆</span>
-                          <span className="text-sm font-medium">Certificate Available</span>
-                        </div>
-                        <p className="text-xs text-blue-700 mt-1">
-                          {hasTestQuestions 
-                            ? 'You passed the test! Generate your certificate now.'
-                            : 'Generate your certificate of completion anytime!'
-                          }
-                        </p>
-                      </div>
-                      <CertificateGenerator
-                        courseId={course.id}
-                        courseTitle={course.title}
-                        instructor={course.instructor}
-                        userId={user.id}
-                        userEmail={user.email || ''}
-                        userProfile={userProfile}
-                      />
-                    </div>
-                  )}
-
-                  {/* Test Required Message in Sidebar */}
-                  {hasTestQuestions && !hasPassedTest && !existingCertificate && (
-                    <div className="space-y-2">
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3">
-                        <div className="flex items-center gap-2 text-orange-800">
-                          <span>⏳</span>
-                          <span className="text-sm font-medium">Test Required</span>
-                        </div>
-                        <p className="text-xs text-orange-700 mt-1">
-                          Pass the course test to unlock your certificate.
-                        </p>
-                      </div>
-                      <Button className="w-full bg-orange-500 hover:bg-orange-600" asChild>
-                        <Link href={`/courses/${course.id}/test`}>
-                          {hasAttemptedTest ? 'Retake Test' : 'Take Test'}
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Existing Certificate Display */}
-                  {existingCertificate && (
-                    <div className="space-y-2">
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                        <div className="flex items-center gap-2 text-blue-800">
-                          <span>🏆</span>
-                          <span className="text-sm font-medium">Certificate Earned</span>
-                        </div>
-                        <p className="text-xs text-blue-700 mt-1">
-                          You have successfully completed this course!
-                        </p>
-                      </div>
-                      <Button className="w-full bg-blue-500 hover:bg-blue-600" size="lg" asChild>
-                        <Link href={`/courses/${course.id}/certificate`}>
-                          🏆 View Certificate
-                        </Link>
-                      </Button>
-                      <Button variant="outline" className="w-full">
-                        📥 Download Certificate
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Test Access */}
-                  {hasTestQuestions && (
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href={`/courses/${course.id}/test`}>
-                        {course.latest_test_attempt ? '📝 Retake Test' : '📝 Take Test'}
-                      </Link>
-                    </Button>
-                  )}
+                  {/* Take Test Button */}
+                  <Button className="w-full bg-blue-500 hover:bg-blue-600" size="lg" asChild>
+                    <Link href="http://localhost:3000/test">
+                      📝 Take Test
+                    </Link>
+                  </Button>
 
                   {/* Enrollment button for non-enrolled users */}
                   {!course.enrolled && (
