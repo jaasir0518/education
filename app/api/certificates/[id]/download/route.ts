@@ -5,9 +5,12 @@ import { cookies } from 'next/headers'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Await the params since it's a Promise in Next.js 15+
+    const { id } = await params
+    
     const supabase = createRouteHandlerClient({ cookies })
     
     // Check if user is authenticated
@@ -26,7 +29,7 @@ export async function GET(
           instructor
         )
       `)
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (error || !video) {
@@ -110,8 +113,8 @@ export async function GET(
 
   } catch (error) {
     console.error('Video download error:', error)
-      return NextResponse.json({ 
-        error: 'Failed to download video' 
-      }, { status: 500 })
-    }
+    return NextResponse.json({ 
+      error: 'Failed to download video' 
+    }, { status: 500 })
   }
+}
