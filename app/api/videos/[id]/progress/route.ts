@@ -4,10 +4,13 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
+    
+    // Await the params promise
+    const { id } = await params
     
     // Get authenticated user
     const {
@@ -34,7 +37,7 @@ export async function POST(
     }
 
     // Validate inputs
-    if (!params.id || typeof params.id !== 'string') {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json(
         { error: 'Invalid video ID' },
         { status: 400 }
@@ -54,7 +57,7 @@ export async function POST(
     // Prepare the data to upsert
     const progressData = {
       user_id: user.id,
-      video_id: params.id,
+      video_id: id,
       progress: progressPercent,
       last_position: progress,
       duration: duration,
@@ -95,10 +98,13 @@ export async function POST(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
+    
+    // Await the params promise
+    const { id } = await params
     
     // Get authenticated user
     const {
@@ -118,7 +124,7 @@ export async function GET(
       .from('video_progress')
       .select('*')
       .eq('user_id', user.id)
-      .eq('video_id', params.id)
+      .eq('video_id', id)
       .single()
 
     if (error && error.code !== 'PGRST116') {
