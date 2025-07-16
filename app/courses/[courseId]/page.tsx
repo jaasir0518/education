@@ -309,13 +309,18 @@ function formatTimeSpent(seconds: number): string {
   }
 }
 
+// Updated interface for Next.js 15
 interface CourseDetailPageProps {
-  params: {
+  params: Promise<{
     courseId: string
-  }
+  }>
 }
 
 export default async function CourseDetailPage({ params }: CourseDetailPageProps) {
+  // Await the params Promise
+  const resolvedParams = await params
+  const { courseId } = resolvedParams
+  
   const supabase = createServerComponentClient({ cookies })
   
   const {
@@ -326,7 +331,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
     redirect('/auth/login')
   }
 
-  const course = await getCourseById(params.courseId, user.id)
+  const course = await getCourseById(courseId, user.id)
   const userProfile = await getUserProfile(user.id)
 
   if (!course) {
