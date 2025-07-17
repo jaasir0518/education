@@ -1,16 +1,17 @@
 // app/home/page.tsx
-'use client'
 
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { Suspense } from 'react'
 import Loading from './loading'
+
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
 
-export default async function HomePage() {
+async function HomeContent() {
   const supabase = createServerComponentClient({ cookies })
   
   try {
@@ -22,6 +23,9 @@ export default async function HomePage() {
     }
 
     const { data: { user } } = await supabase.auth.getUser()
+
+    // Add this in your home page for testing
+    await new Promise(resolve => setTimeout(resolve, 2000))
 
     return (
       <div className="min-h-screen bg-gray-50">
@@ -382,4 +386,12 @@ export default async function HomePage() {
     console.error('Error in home page:', error)
     redirect('/auth/login')
   }
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <HomeContent />
+    </Suspense>
+  )
 }
