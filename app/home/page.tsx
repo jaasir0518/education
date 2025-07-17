@@ -1,8 +1,14 @@
 // app/home/page.tsx
+'use client'
+
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import Loading from './loading'
+
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
   const supabase = createServerComponentClient({ cookies })
