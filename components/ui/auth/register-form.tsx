@@ -11,6 +11,7 @@ export default function RegisterForm() {
     const [confirmPassword, setConfirmPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
     const router = useRouter()
     const supabase = createClientComponentClient()
 
@@ -18,9 +19,17 @@ export default function RegisterForm() {
         e.preventDefault()
         setLoading(true)
         setError('')
+        setSuccess('')
 
+        // Password validation
         if (password !== confirmPassword) {
             setError('Passwords do not match')
+            setLoading(false)
+            return
+        }
+
+        if (password.length < 6) {
+            setError('Password must be at least 6 characters long')
             setLoading(false)
             return
         }
@@ -29,28 +38,84 @@ export default function RegisterForm() {
             const { data, error } = await supabase.auth.signUp({
                 email,
                 password,
+                options: {
+                    emailRedirectTo: `${window.location.origin}/auth/callback`,
+                    data: {
+                        email: email,
+                        created_at: new Date().toISOString()
+                    }
+                }
             })
 
             if (error) {
+                console.error('Signup error:', error)
+                
                 // Handle specific error types
-                if (error.message.includes('500')) {
-                    setError('Server error: Please check your Supabase configuration. Make sure your database is set up correctly.')
-                } else if (error.message.includes('User already registered')) {
+                if (error.message.includes('Database error saving new user')) {
+                    setError('Database configuration issue. Please check your Supabase database setup, RLS policies, and table permissions.')
+                } else if (error.message.includes('500') || error.message.includes('Internal server error')) {
+                    setError('Server error: Please check your Supabase configuration and database setup.')
+                } else if (error.message.includes('User already registered') || error.message.includes('already registered')) {
                     setError('An account with this email already exists. Please try signing in instead.')
+                } else if (error.message.includes('Invalid email')) {
+                    setError('Please enter a valid email address.')
+                } else if (error.message.includes('Password')) {
+                    setError('Password requirements not met. Please use at least 6 characters.')
                 } else {
-                    setError(error.message)
+                    setError(error.message || 'An error occurred during registration.')
                 }
-            } else {
+            } else if (data.user) {
+                // Only create profile if user creation was successful
+                if (data.user.id) {
+                    try {
+                        // Check if users table exists and create profile
+                        const { data: existingProfile } = await supabase
+                            .from('users')
+                            .select('id')
+                            .eq('id', data.user.id)
+                            .single()
+
+                        if (!existingProfile) {
+                            const { error: profileError } = await supabase
+                                .from('users')
+                                .upsert({
+                                    id: data.user.id,
+                                    email: data.user.email,
+                                    created_at: new Date().toISOString(),
+                                    updated_at: new Date().toISOString()
+                                }, {
+                                    onConflict: 'id'
+                                })
+
+                            if (profileError) {
+                                console.warn('Profile creation error (non-fatal):', profileError)
+                                // Don't fail the registration for profile creation issues
+                            }
+                        }
+                    } catch (profileError) {
+                        console.warn('Profile creation failed (non-fatal):', profileError)
+                        // Don't fail the registration for profile creation issues
+                    }
+                }
+
                 // Check if email confirmation is required
-                if (data.user && !data.session) {
-                    setError('Please check your email and click the confirmation link before signing in.')
+                if (!data.session) {
+                    setSuccess('Registration successful! Please check your email and click the confirmation link to activate your account.')
                 } else {
-                    router.push('/home')
+                    // User is immediately signed in (email confirmation disabled)
+                    setSuccess('Registration successful! Redirecting to dashboard...')
+                    setTimeout(() => {
+                        router.push('/dashboard')
+                    }, 1500)
                 }
             }
-        } catch (error) {
-            console.error('Registration error:', error)
-            setError('An unexpected error occurred. Please try again.')
+        } catch (error: any) {
+            console.error('Unexpected registration error:', error)
+            if (error.message?.includes('Database error saving new user')) {
+                setError('Database configuration issue. Please contact support or check your Supabase setup.')
+            } else {
+                setError('An unexpected error occurred. Please try again.')
+            }
         } finally {
             setLoading(false)
         }
@@ -99,8 +164,9 @@ export default function RegisterForm() {
                             value={password}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                             required
+                            minLength={6}
                             className="appearance-none rounded-md relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
-                            placeholder="Create a password"
+                            placeholder="Create a password (min 6 characters)"
                         />
                     </div>
 
@@ -114,6 +180,7 @@ export default function RegisterForm() {
                             value={confirmPassword}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
                             required
+                            minLength={6}
                             className="appearance-none rounded-md relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
                             placeholder="Confirm your password"
                         />
@@ -142,10 +209,21 @@ export default function RegisterForm() {
                     {error && (
                         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
                             <div className="flex">
-                                <svg className="w-5 h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <svg className="w-5 h-5 text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                                 </svg>
-                                {error}
+                                <span>{error}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {success && (
+                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm">
+                            <div className="flex">
+                                <svg className="w-5 h-5 text-green-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                <span>{success}</span>
                             </div>
                         </div>
                     )}
