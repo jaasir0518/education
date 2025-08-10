@@ -1,387 +1,487 @@
-// components/VideoPlayer.tsx
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Download, Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize } from 'lucide-react'
 
-interface VideoPlayerProps {
-  videoId: string
-  videoUrl: string
-  title?: string
-  initialProgress?: number
+interface VideoProgress {
+  id: string
+  user_id: string
+  course_id: string
+  current_time: number
+  duration: number
+  completed: boolean
+  watch_percentage: number
+  created_at: string
+  updated_at: string
 }
 
-export default function VideoPlayer({ 
-  videoId, 
+interface VideoPlayerProps {
+  videoUrl: string
+  thumbnailUrl?: string | null
+  title: string
+  enrolled: boolean
+  courseId: string
+  userId: string
+  initialProgress?: VideoProgress | null
+}
+
+export function VideoPlayer({ 
   videoUrl, 
-  title = 'Video',
-  initialProgress = 0 
+  thumbnailUrl, 
+  title, 
+  enrolled, 
+  courseId, 
+  userId,
+  initialProgress 
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const lastSavedProgressRef = useRef<number>(0)
-  
   const [isPlaying, setIsPlaying] = useState(false)
-  const [progress, setProgress] = useState(initialProgress)
+  const [currentTime, setCurrentTime] = useState(initialProgress?.current_time || 0)
   const [duration, setDuration] = useState(0)
-  const [currentTime, setCurrentTime] = useState(0)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [isDownloading, setIsDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
-  const [isProgressSaving, setIsProgressSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [showControls, setShowControls] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Progress tracking
+  const [lastSavedTime, setLastSavedTime] = useState(initialProgress?.current_time || 0)
+  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Debounced progress saving
-  const debouncedSaveProgress = useCallback((progressPercent: number) => {
-    // Clear existing timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current)
-    }
-
-    // Only save if progress has changed significantly (more than 1%)
-    if (Math.abs(progressPercent - lastSavedProgressRef.current) < 1) {
+  // Debounced progress save function
+  const saveVideoProgress = useCallback(async (currentTime: number, duration: number, completed: boolean = false) => {
+    if (!enrolled || isSaving || !duration || duration <= 0) return
+    
+    const watchPercentage = duration > 0 ? (currentTime / duration) * 100 : 0
+    
+    // Only save if significant progress has been made (more than 5 seconds difference) or if completed
+    if (Math.abs(currentTime - lastSavedTime) < 5 && !completed) {
       return
     }
 
-    // Set new timeout
-    saveTimeoutRef.current = setTimeout(() => {
-      saveVideoProgress(progressPercent)
-    }, 2000) // Debounce by 2 seconds
-  }, [])
-
-  const saveVideoProgress = async (progressPercent: number) => {
-    if (isProgressSaving) return // Prevent multiple simultaneous saves
-    
-    setIsProgressSaving(true)
-    setSaveError(null)
+    setIsSaving(true)
     
     try {
-      const response = await fetch(`/api/videos/${videoId}/progress`, {
+      const response = await fetch('/api/video-progress', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          progress: Math.round(progressPercent * 100) / 100,
-          duration: Math.round(duration * 100) / 100
-        })
+          courseId,
+          currentTime: Math.floor(currentTime),
+          duration: Math.floor(duration),
+          completed,
+          watchPercentage: Math.min(watchPercentage, 100)
+        }),
       })
 
+      // Check if response is ok
       if (!response.ok) {
-        let errorMessage = 'Failed to save progress'
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.error || errorData.message || errorMessage
-        } catch (parseError) {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`
-        }
-        throw new Error(errorMessage)
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Response is not JSON')
       }
 
       const result = await response.json()
-      console.log('Progress saved successfully:', result)
-      lastSavedProgressRef.current = progressPercent
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save progress')
+      }
+
+      setLastSavedTime(currentTime)
+      setError(null)
       
+      console.log('Video progress saved successfully:', result.data)
     } catch (error) {
       console.error('Error saving video progress:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save progress'
-      setSaveError(errorMessage)
+      let errorMessage = 'Failed to save progress'
       
-      // Retry after 5 seconds if it's a network error
-      if (error instanceof Error && error.message.includes('409')) {
-        console.log('Retrying progress save after conflict...')
-        setTimeout(() => saveVideoProgress(progressPercent), 5000)
+      if (error instanceof Error) {
+        if (error.message.includes('not JSON')) {
+          errorMessage = 'Server error - please refresh the page'
+        } else if (error.message.includes('HTTP error')) {
+          errorMessage = 'Network error - progress not saved'
+        } else {
+          errorMessage = error.message
+        }
       }
+      
+      setError(errorMessage)
     } finally {
-      setIsProgressSaving(false)
+      setIsSaving(false)
     }
-  }
+  }, [enrolled, courseId, lastSavedTime, isSaving])
 
-  // Save progress when video time updates
-  useEffect(() => {
-    if (duration > 0 && currentTime > 0) {
-      const currentProgress = (currentTime / duration) * 100
-      debouncedSaveProgress(currentProgress)
+  // Debounced save function
+  const debouncedSave = useCallback((currentTime: number, duration: number, completed: boolean = false) => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout)
     }
-  }, [currentTime, duration, debouncedSaveProgress])
 
-  // Save progress when component unmounts or video changes
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
-      }
-      // Save immediately on unmount if there's unsaved progress
-      if (duration > 0 && currentTime > 0 && !isProgressSaving) {
-        const currentProgress = (currentTime / duration) * 100
-        if (Math.abs(currentProgress - lastSavedProgressRef.current) >= 1) {
-          saveVideoProgress(currentProgress)
+    // Save immediately if completed, otherwise debounce
+    if (completed) {
+      saveVideoProgress(currentTime, duration, true)
+    } else {
+      const timeout = setTimeout(() => {
+        saveVideoProgress(currentTime, duration, false)
+      }, 2000) // Save after 2 seconds of inactivity
+      setSaveTimeout(timeout)
+    }
+  }, [saveTimeout, saveVideoProgress])
+
+  // Video event handlers
+  const handleLoadedMetadata = useCallback(() => {
+    if (videoRef.current) {
+      const videoDuration = videoRef.current.duration
+      console.log('Video loaded - Duration:', videoDuration)
+      
+      if (videoDuration && videoDuration > 0 && !isNaN(videoDuration)) {
+        setDuration(videoDuration)
+        
+        // Set initial time if we have saved progress
+        if (initialProgress?.current_time && initialProgress.current_time > 0) {
+          // Ensure we don't seek beyond the actual video duration
+          const seekTime = Math.min(initialProgress.current_time, videoDuration - 1)
+          videoRef.current.currentTime = seekTime
+          setCurrentTime(seekTime)
+          console.log('Restored video position to:', seekTime)
+        }
+        
+        // Save duration to database if we're enrolled and it's different from saved duration
+        if (enrolled && (!initialProgress?.duration || Math.abs(initialProgress.duration - videoDuration) > 5)) {
+          console.log('Updating video duration in database:', videoDuration)
+          debouncedSave(initialProgress?.current_time || 0, videoDuration, false)
         }
       }
     }
-  }, [videoId])
+  }, [enrolled, initialProgress, debouncedSave])
 
-  const handlePlayPause = () => {
-    if (!videoRef.current) return
-
-    if (isPlaying) {
-      videoRef.current.pause()
-    } else {
-      videoRef.current.play().catch((error) => {
-        console.error('Error playing video:', error)
-      })
-    }
-    setIsPlaying(!isPlaying)
-  }
-
-  const handleTimeUpdate = () => {
-    if (!videoRef.current) return
-    
-    const current = videoRef.current.currentTime
-    const total = videoRef.current.duration
-    
-    if (isNaN(current) || isNaN(total) || total === 0) return
-    
-    setCurrentTime(current)
-    setProgress((current / total) * 100)
-  }
-
-  const handleLoadedMetadata = () => {
-    if (!videoRef.current) return
-    
-    const videoDuration = videoRef.current.duration
-    if (isNaN(videoDuration) || videoDuration === 0) return
-    
-    setDuration(videoDuration)
-    
-    // Set initial position based on saved progress
-    if (initialProgress > 0 && initialProgress <= 100) {
-      const startTime = (initialProgress / 100) * videoDuration
-      videoRef.current.currentTime = startTime
-    }
-  }
-
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || duration === 0) return
-    
-    const rect = e.currentTarget.getBoundingClientRect()
-    const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const newTime = percent * duration
-    
-    videoRef.current.currentTime = newTime
-    setCurrentTime(newTime)
-    setProgress(percent * 100)
-  }
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value)
-    setVolume(newVolume)
+  const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
-      videoRef.current.volume = newVolume
-    }
-    setIsMuted(newVolume === 0)
-  }
-
-  const toggleMute = () => {
-    if (!videoRef.current) return
-    
-    if (isMuted) {
-      videoRef.current.volume = volume
-      setIsMuted(false)
-    } else {
-      videoRef.current.volume = 0
-      setIsMuted(true)
-    }
-  }
-
-  const toggleFullscreen = async () => {
-    if (!videoRef.current) return
-    
-    try {
-      if (!isFullscreen) {
-        await videoRef.current.requestFullscreen()
-        setIsFullscreen(true)
-      } else {
-        await document.exitFullscreen()
-        setIsFullscreen(false)
+      const current = videoRef.current.currentTime
+      const total = videoRef.current.duration
+      
+      if (!isNaN(current) && !isNaN(total) && total > 0) {
+        setCurrentTime(current)
+        
+        // Auto-save progress periodically
+        if (enrolled) {
+          debouncedSave(current, total, false)
+        }
       }
-    } catch (error) {
-      console.error('Fullscreen error:', error)
     }
-  }
+  }, [enrolled, debouncedSave])
 
-  // Listen for fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
+  const handleVideoEnd = useCallback(() => {
+    if (videoRef.current) {
+      const current = videoRef.current.currentTime
+      const total = videoRef.current.duration
+      
+      setIsPlaying(false)
+      
+      // Mark as completed when video ends
+      if (enrolled && total > 0 && !isNaN(total)) {
+        console.log('Video ended - marking as completed')
+        debouncedSave(current, total, true)
+      }
     }
+  }, [enrolled, debouncedSave])
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  const handlePlay = useCallback(() => {
+    setIsPlaying(true)
+  }, [])
+
+  const handlePause = useCallback(() => {
+    setIsPlaying(false)
+  }, [])
+
+  const handleVolumeChange = useCallback(() => {
+    if (videoRef.current) {
+      setVolume(videoRef.current.volume)
+      setIsMuted(videoRef.current.muted)
     }
   }, [])
 
-  const handleDownload = async () => {
-    setIsDownloading(true)
-    setDownloadError(null)
+  const handleLoadStart = useCallback(() => {
+    setIsLoading(true)
+    setError(null)
+  }, [])
 
-    try {
-      const response = await fetch(`/api/videos/${videoId}/download`, {
-        method: 'GET',
-      })
+  const handleCanPlay = useCallback(() => {
+    setIsLoading(false)
+  }, [])
 
-      if (!response.ok) {
-        let errorMessage = 'Download failed'
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.error || errorData.message || errorMessage
-        } catch (parseError) {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    console.error('Video error:', e)
+    setError('Error loading video')
+    setIsLoading(false)
+  }, [])
+
+  // Control handlers
+  const togglePlayPause = useCallback(() => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause()
+      } else {
+        const playPromise = videoRef.current.play()
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.error('Error playing video:', error)
+            setError('Failed to play video')
+          })
         }
-        throw new Error(errorMessage)
       }
-
-      // Create blob and download
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${title}.mp4`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-
-    } catch (error) {
-      console.error('Download error:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Download failed'
-      setDownloadError(errorMessage)
-    } finally {
-      setIsDownloading(false)
     }
-  }
+  }, [isPlaying])
 
-  const formatTime = (seconds: number) => {
+  const handleSeek = useCallback((value: number[]) => {
+    if (videoRef.current && duration > 0) {
+      const seekTime = Math.min(value[0], duration - 0.1) // Prevent seeking to the very end
+      videoRef.current.currentTime = seekTime
+      setCurrentTime(seekTime)
+      
+      // Save progress when seeking
+      if (enrolled) {
+        debouncedSave(seekTime, duration, false)
+      }
+    }
+  }, [enrolled, duration, debouncedSave])
+
+  const handleVolumeSliderChange = useCallback((value: number[]) => {
+    if (videoRef.current) {
+      const newVolume = value[0]
+      videoRef.current.volume = newVolume
+      setVolume(newVolume)
+      setIsMuted(newVolume === 0)
+    }
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted
+      setIsMuted(!isMuted)
+    }
+  }, [isMuted])
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      videoRef.current?.requestFullscreen()
+      setIsFullscreen(true)
+    } else {
+      document.exitFullscreen()
+      setIsFullscreen(false)
+    }
+  }, [])
+
+  // Format time display
+  const formatTime = useCallback((seconds: number) => {
     if (isNaN(seconds) || seconds < 0) return '0:00'
     
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = Math.floor(seconds % 60)
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+  }, [])
 
-  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    console.error('Video error:', e.currentTarget.error)
+  // Hide controls after inactivity
+  useEffect(() => {
+    let hideControlsTimeout: NodeJS.Timeout
+
+    const resetHideControlsTimeout = () => {
+      setShowControls(true)
+      clearTimeout(hideControlsTimeout)
+      hideControlsTimeout = setTimeout(() => {
+        if (isPlaying) {
+          setShowControls(false)
+        }
+      }, 3000)
+    }
+
+    resetHideControlsTimeout()
+
+    const handleMouseMove = () => resetHideControlsTimeout()
+    const handleMouseLeave = () => {
+      if (isPlaying) {
+        setShowControls(false)
+      }
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseleave', handleMouseLeave)
+
+    return () => {
+      clearTimeout(hideControlsTimeout)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseleave', handleMouseLeave)
+    }
+  }, [isPlaying])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeout) {
+        clearTimeout(saveTimeout)
+      }
+    }
+  }, [saveTimeout])
+
+  const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0
+
+  if (!enrolled) {
+    return (
+      <div className="relative w-full aspect-video bg-gray-900 flex items-center justify-center">
+        {thumbnailUrl && (
+          <img
+            src={thumbnailUrl}
+            alt={title}
+            className="absolute inset-0 w-full h-full object-cover opacity-50"
+          />
+        )}
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="text-6xl mb-4">🔒</div>
+            <h3 className="text-2xl font-bold mb-2">Enroll to Watch</h3>
+            <p className="text-gray-300">Sign up for this course to access the video content</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="relative bg-black rounded-lg overflow-hidden">
+    <div className="relative w-full aspect-video bg-black group">
       <video
         ref={videoRef}
-        src={videoUrl}
-        onTimeUpdate={handleTimeUpdate}
+        className="w-full h-full object-contain"
         onLoadedMetadata={handleLoadedMetadata}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onError={handleVideoError}
-        className="w-full h-auto"
+        onTimeUpdate={handleTimeUpdate}
+        onPlay={handlePlay}
+        onPause={handlePause}
+        onEnded={handleVideoEnd}
+        onVolumeChange={handleVolumeChange}
+        onLoadStart={handleLoadStart}
+        onCanPlay={handleCanPlay}
+        onError={handleError}
         preload="metadata"
+        playsInline
       >
+        <source src={videoUrl} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
 
-      {/* Video Controls */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-        {/* Progress Bar */}
-        <div 
-          className="w-full h-2 bg-gray-600 rounded-full mb-4 cursor-pointer"
-          onClick={handleProgressClick}
-        >
-          <div 
-            className="h-full bg-blue-500 rounded-full transition-all duration-200"
-            style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-          />
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="text-white text-lg flex items-center gap-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+            Loading...
+          </div>
+        </div>
+      )}
+
+      {/* Error display */}
+      {error && (
+        <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded text-sm max-w-xs">
+          {error}
+        </div>
+      )}
+
+      {/* Saving indicator */}
+      {isSaving && (
+        <div className="absolute top-4 left-4 bg-blue-500 text-white px-3 py-1 rounded text-sm flex items-center gap-2">
+          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+          Saving progress...
+        </div>
+      )}
+
+      {/* Controls overlay */}
+      <div className={`absolute inset-0 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Play/Pause button overlay */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="lg"
+            onClick={togglePlayPause}
+            className="bg-black bg-opacity-50 hover:bg-opacity-70 text-white rounded-full p-4"
+          >
+            {isPlaying ? <Pause className="h-8 w-8" /> : <Play className="h-8 w-8" />}
+          </Button>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center justify-between text-white">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={handlePlayPause}
-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
-              aria-label={isPlaying ? 'Pause video' : 'Play video'}
-            >
-              {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-            </button>
+        {/* Bottom controls */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4">
+          {/* Progress bar */}
+          <div className="mb-4">
+            <Slider
+              value={[currentTime]}
+              max={duration || 100}
+              step={1}
+              onValueChange={handleSeek}
+              className="w-full"
+              disabled={!duration || duration <= 0}
+            />
+            <div className="flex justify-between text-sm text-white mt-1">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
 
+          {/* Control buttons */}
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <button
-                onClick={toggleMute}
-                className="p-1 hover:bg-white/20 rounded transition-colors"
-                aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={togglePlayPause}
+                className="text-white hover:bg-white hover:bg-opacity-20"
               >
-                {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={isMuted ? 0 : volume}
-                onChange={handleVolumeChange}
-                className="w-20 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                aria-label="Volume control"
-              />
+                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </Button>
+
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleMute}
+                  className="text-white hover:bg-white hover:bg-opacity-20"
+                >
+                  {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                </Button>
+                <div className="w-20">
+                  <Slider
+                    value={[isMuted ? 0 : volume]}
+                    max={1}
+                    step={0.1}
+                    onValueChange={handleVolumeSliderChange}
+                    className="w-full"
+                  />
+                </div>
+              </div>
             </div>
 
-            <span className="text-sm">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleDownload}
-              disabled={isDownloading}
-              className="flex items-center space-x-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded transition-colors"
-              aria-label="Download video"
-            >
-              <Download size={16} />
-              <span className="text-sm">
-                {isDownloading ? 'Downloading...' : 'Download'}
-              </span>
-            </button>
-
-            <button
-              onClick={toggleFullscreen}
-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
-              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            >
-              <Maximize size={20} />
-            </button>
+            <div className="flex items-center space-x-2">
+              <div className="text-white text-sm">
+                {Math.round(progressPercentage)}%
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleFullscreen}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
         </div>
-
-        {/* Error Messages */}
-        {downloadError && (
-          <div className="mt-2 p-2 bg-red-500/20 border border-red-500 rounded text-red-300 text-sm">
-            Download Error: {downloadError}
-          </div>
-        )}
-        
-        {saveError && (
-          <div className="mt-2 p-2 bg-yellow-500/20 border border-yellow-500 rounded text-yellow-300 text-sm">
-            Save Error: {saveError}
-          </div>
-        )}
-        
-        {isProgressSaving && (
-          <div className="mt-2 p-2 bg-blue-500/20 border border-blue-500 rounded text-blue-300 text-sm">
-            Saving progress...
-          </div>
-        )}
       </div>
     </div>
   )

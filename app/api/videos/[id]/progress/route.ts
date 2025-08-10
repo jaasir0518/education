@@ -57,10 +57,11 @@ export async function POST(
     // Prepare the data to upsert
     const progressData = {
       user_id: user.id,
-      video_id: id,
-      progress: progressPercent,
-      last_position: progress,
+      course_id: id,
+      current_time: progress,
       duration: duration,
+      watch_percentage: progressPercent,
+      completed: progressPercent >= 90,
       updated_at: new Date().toISOString()
     }
 
@@ -70,7 +71,7 @@ export async function POST(
     const { data, error } = await supabase
       .from('video_progress')
       .upsert(progressData, {
-        onConflict: 'user_id,video_id'
+        onConflict: 'user_id,course_id'
       })
       .select()
 
@@ -124,7 +125,7 @@ export async function GET(
       .from('video_progress')
       .select('*')
       .eq('user_id', user.id)
-      .eq('video_id', id)
+      .eq('course_id', id)
       .single()
 
     if (error && error.code !== 'PGRST116') {
